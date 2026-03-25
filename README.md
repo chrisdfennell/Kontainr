@@ -2,9 +2,8 @@
   <img src="https://raw.githubusercontent.com/chrisdfennell/Kontainr/refs/heads/dev/Kontainr/wwwroot/favicon.svg" width="80" alt="Kontainr logo"/>
 </p>
 
-# Kontainr
-
-> A lightweight Docker dashboard for managing containers, logs, and services.
+<h1 align="center">Kontainr</h1>
+<p align="center">A lightweight Docker dashboard for managing containers, logs, and services.</p>
 
 <p align="center">
   <a href="https://github.com/chrisdfennell/Kontainr/actions"><img src="https://github.com/chrisdfennell/Kontainr/actions/workflows/docker-publish.yml/badge.svg" alt="CI/CD"></a>
