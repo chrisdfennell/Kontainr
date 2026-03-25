@@ -17,4 +17,23 @@ public class AppSettings
     public string Theme { get; set; } = "dark";
     public List<SshConnectionConfig> SshConnections { get; set; } = [];
     public HashSet<string> FavoriteContainerNames { get; set; } = [];
+    public WebhookConfig Webhook { get; set; } = new();
+    public List<ScheduledRestart> ScheduledRestarts { get; set; } = [];
+}
+
+public class WebhookConfig
+{
+    public string Url { get; set; } = "";
+    public bool Enabled { get; set; }
+    public bool OnCrash { get; set; } = true;
+    public bool OnRestartLoop { get; set; } = true;
+}
+
+public class ScheduledRestart
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string ContainerName { get; set; } = "";
+    public string CronExpression { get; set; } = "";
+    public string DisplaySchedule { get; set; } = "";
+    public bool Enabled { get; set; } = true;
 }

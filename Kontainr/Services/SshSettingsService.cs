@@ -68,6 +68,46 @@ public class SshSettingsService
         }
     }
 
+    // ── Webhook ───────────────────────────────────────────────────
+
+    public WebhookConfig GetWebhook()
+    {
+        lock (_lock) { return Load().Webhook; }
+    }
+
+    public void SaveWebhook(WebhookConfig config)
+    {
+        lock (_lock) { var s = Load(); s.Webhook = config; Save(s); }
+    }
+
+    // ── Scheduled Restarts ───────────────────────────────────────
+
+    public List<ScheduledRestart> GetScheduledRestarts()
+    {
+        lock (_lock) { return Load().ScheduledRestarts.ToList(); }
+    }
+
+    public void SaveScheduledRestart(ScheduledRestart sr)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.ScheduledRestarts.RemoveAll(x => x.Id == sr.Id);
+            s.ScheduledRestarts.Add(sr);
+            Save(s);
+        }
+    }
+
+    public void DeleteScheduledRestart(string id)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.ScheduledRestarts.RemoveAll(x => x.Id == id);
+            Save(s);
+        }
+    }
+
     // ── Favorites ─────────────────────────────────────────────────
 
     public HashSet<string> GetFavorites()

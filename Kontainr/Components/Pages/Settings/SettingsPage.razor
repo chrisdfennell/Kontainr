@@ -145,6 +145,99 @@
         </div>
     </div>
 
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            Webhook Notifications
+            <button class="k-btn" @onclick="SaveWebhook">Save</button>
+        </div>
+        <div class="k-card-body">
+            <div style="max-width: 600px;">
+                <label class="k-form-label">Webhook URL (Discord, Slack, or any HTTP endpoint)</label>
+                <input class="k-form-input" type="text" placeholder="https://discord.com/api/webhooks/..." @bind="webhookUrl" />
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
+                        <input type="checkbox" @bind="webhookEnabled" /> Enabled
+                    </label>
+                    <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
+                        <input type="checkbox" @bind="webhookOnCrash" /> On Crash
+                    </label>
+                    <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
+                        <input type="checkbox" @bind="webhookOnRestart" /> On Restart Loop
+                    </label>
+                </div>
+                <span style="font-size: 0.7rem; color: var(--k-text-muted);">Auto-detects Discord and Slack URLs. Other URLs receive a generic JSON POST.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            Scheduled Restarts
+            <button class="k-btn" @onclick="ShowAddSchedule">Add Schedule</button>
+        </div>
+        @if (showScheduleForm)
+        {
+            <div class="k-card-body" style="border-bottom: 1px solid var(--k-border);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 500px;">
+                    <div>
+                        <label class="k-form-label">Container Name</label>
+                        <input class="k-form-input" type="text" placeholder="my-container" @bind="schedContainerName" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Schedule</label>
+                        <select class="k-form-input" @bind="schedPreset">
+                            <option value="03:00">Daily at 3:00 AM</option>
+                            <option value="06:00">Daily at 6:00 AM</option>
+                            <option value="00:00">Daily at Midnight</option>
+                            <option value="Sun 03:00">Sunday at 3:00 AM</option>
+                            <option value="Mon 03:00">Monday at 3:00 AM</option>
+                            <option value="Mon,Wed,Fri 03:00">Mon/Wed/Fri at 3:00 AM</option>
+                            <option value="*/6">Every 6 hours</option>
+                            <option value="*/12">Every 12 hours</option>
+                            <option value="custom">Custom...</option>
+                        </select>
+                    </div>
+                    @if (schedPreset == "custom")
+                    {
+                        <div style="grid-column: span 2;">
+                            <label class="k-form-label">Custom Expression (e.g. "Sun 03:00" or "*/8")</label>
+                            <input class="k-form-input" type="text" placeholder="HH:mm or Day HH:mm or */N" @bind="schedCustom" />
+                        </div>
+                    }
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveSchedule" disabled="@(string.IsNullOrWhiteSpace(schedContainerName))">Save</button>
+                    <button class="k-btn" @onclick="() => showScheduleForm = false">Cancel</button>
+                </div>
+            </div>
+        }
+        @if (schedules.Count > 0)
+        {
+            <table class="k-table">
+                <thead><tr><th>Container</th><th>Schedule</th><th>Enabled</th><th style="text-align: right;">Actions</th></tr></thead>
+                <tbody>
+                    @foreach (var sr in schedules)
+                    {
+                        <tr>
+                            <td><strong>@sr.ContainerName</strong></td>
+                            <td class="k-mono">@sr.CronExpression</td>
+                            <td>
+                                <span style="color: @(sr.Enabled ? "var(--k-green)" : "var(--k-text-muted)");">@(sr.Enabled ? "Active" : "Disabled")</span>
+                            </td>
+                            <td style="text-align: right;">
+                                <button class="k-btn k-btn-danger" @onclick="() => DeleteSchedule(sr.Id)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (!showScheduleForm)
+        {
+            <div style="text-align: center; padding: 1.5rem; color: var(--k-text-muted);">No scheduled restarts configured.</div>
+        }
+    </div>
+
     <div class="k-card">
         <div class="k-card-header">About Authentication</div>
         <div class="k-card-body" style="font-size: 0.85rem; color: var(--k-text-muted); line-height: 1.6;">
@@ -168,6 +261,19 @@
     private string testResult = "";
     private string? importResult;
     private bool importSuccess;
+
+    // Webhook
+    private string webhookUrl = "";
+    private bool webhookEnabled;
+    private bool webhookOnCrash = true;
+    private bool webhookOnRestart = true;
+
+    // Scheduled restarts
+    private List<ScheduledRestart> schedules = [];
+    private bool showScheduleForm;
+    private string schedContainerName = "";
+    private string schedPreset = "03:00";
+    private string schedCustom = "";
     private bool testSuccess;
     private bool testing;
 
@@ -182,6 +288,45 @@
     {
         hostUrl = SshSettings.GetHostUrl();
         LoadConnections();
+        var wh = SshSettings.GetWebhook();
+        webhookUrl = wh.Url; webhookEnabled = wh.Enabled;
+        webhookOnCrash = wh.OnCrash; webhookOnRestart = wh.OnRestartLoop;
+        schedules = SshSettings.GetScheduledRestarts();
+    }
+
+    private void SaveWebhook()
+    {
+        SshSettings.SaveWebhook(new WebhookConfig
+        {
+            Url = webhookUrl.Trim(), Enabled = webhookEnabled,
+            OnCrash = webhookOnCrash, OnRestartLoop = webhookOnRestart
+        });
+        Toast.Success("Webhook settings saved");
+    }
+
+    private void ShowAddSchedule() { showScheduleForm = true; schedContainerName = ""; schedPreset = "03:00"; schedCustom = ""; }
+
+    private void SaveSchedule()
+    {
+        var expr = schedPreset == "custom" ? schedCustom.Trim() : schedPreset;
+        if (string.IsNullOrWhiteSpace(schedContainerName) || string.IsNullOrWhiteSpace(expr)) return;
+        SshSettings.SaveScheduledRestart(new ScheduledRestart
+        {
+            ContainerName = schedContainerName.Trim(),
+            CronExpression = expr,
+            DisplaySchedule = expr,
+            Enabled = true
+        });
+        Toast.Success("Schedule saved");
+        showScheduleForm = false;
+        schedules = SshSettings.GetScheduledRestarts();
+    }
+
+    private void DeleteSchedule(string id)
+    {
+        SshSettings.DeleteScheduledRestart(id);
+        Toast.Success("Schedule deleted");
+        schedules = SshSettings.GetScheduledRestarts();
     }
 
     private void SaveHostUrl()

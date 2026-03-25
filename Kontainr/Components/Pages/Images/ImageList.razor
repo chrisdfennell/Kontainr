@@ -78,13 +78,13 @@
                         var parts = repoTag.Split(':', 2);
                         var repo = parts[0];
                         var tag = parts.Length > 1 ? parts[1] : "latest";
-                        <tr>
+                        <tr class="k-clickable" @onclick="() => InspectImage(repoTag)">
                             <td><strong>@repo</strong></td>
                             <td><span class="k-badge">@tag</span></td>
                             <td class="k-mono">@img.ID[7..19]</td>
                             <td>@FormatSize(img.Size)</td>
                             <td>@img.Created.ToLocalTime().ToString("g")</td>
-                            <td style="text-align: right;">
+                            <td style="text-align: right;" @onclick:stopPropagation="true">
                                 <button class="k-btn k-btn-danger" @onclick="() => RequestRemoveImage(img.ID, repoTag)" disabled="@(removing == img.ID)" title="Remove">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 </button>
@@ -103,6 +103,8 @@
 </div>
 
 @code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
     private IList<Docker.DotNet.Models.ImagesListResponse> images = [];
     private bool loading = true;
     private string searchTerm = "";
@@ -188,4 +190,7 @@
         if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
         return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
     }
+
+    private void InspectImage(string repoTag) =>
+        Nav.NavigateTo($"/images/{Uri.EscapeDataString(repoTag)}/inspect");
 }
