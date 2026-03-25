@@ -10,4 +10,6 @@ WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
+ENV KONTAINR_DATA=/app/data
+VOLUME /app/data
 ENTRYPOINT ["dotnet", "Kontainr.dll"]
