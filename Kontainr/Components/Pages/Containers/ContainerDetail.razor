@@ -470,6 +470,7 @@
         terminalBusy = false;
         StateHasChanged();
         await JS.InvokeVoidAsync("kontainr.scrollToBottom", "terminal-output");
+        await JS.InvokeVoidAsync("kontainr.focusElement", "terminal-input");
     }
 
     // ── Actions ──────────────────────────────────────────────────

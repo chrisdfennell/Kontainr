@@ -177,7 +177,10 @@
         busy = false;
         StateHasChanged();
         if (jsReady)
+        {
             await JS.InvokeVoidAsync("kontainr.scrollToBottom", "ssh-terminal-output");
+            await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
+        }
     }
 
     private void ClearTerminal()
