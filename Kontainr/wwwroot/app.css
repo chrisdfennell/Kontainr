@@ -167,6 +167,7 @@ html, body {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.875rem;
+    table-layout: fixed;
 }
 
 .k-table th {
@@ -179,12 +180,15 @@ html, body {
     letter-spacing: 0.04em;
     border-bottom: 1px solid var(--k-border);
     white-space: nowrap;
+    overflow: hidden;
 }
 
 .k-table td {
     padding: 0.6rem 1rem;
     border-bottom: 1px solid var(--k-border);
     vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .k-table tbody tr:hover {
@@ -194,6 +198,15 @@ html, body {
 .k-table tbody tr:last-child td {
     border-bottom: none;
 }
+
+/* Container table column widths */
+.k-table .col-name { width: 16%; }
+.k-table .col-image { width: 22%; }
+.k-table .col-status { width: 20%; }
+.k-table .col-cpu { width: 7%; }
+.k-table .col-mem { width: 13%; }
+.k-table .col-ports { width: 14%; }
+.k-table .col-actions { width: 8%; text-align: right; }
 
 /* ── Status Indicators ────────────────────────────────────────── */
 
@@ -732,21 +745,28 @@ html, body {
 
 .k-port-link {
     display: inline-block;
-    padding: 0.1rem 0.4rem;
-    margin: 1px 2px;
+    padding: 0.1rem 0.35rem;
+    margin: 1px 1px;
     border-radius: 4px;
     font-family: 'Cascadia Code', monospace;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     background: rgba(88, 166, 255, 0.1);
     color: var(--k-accent);
     text-decoration: none;
     transition: background 0.15s;
+    white-space: nowrap;
 }
 
 .k-port-link:hover {
     background: rgba(88, 166, 255, 0.25);
     color: var(--k-accent);
     text-decoration: none;
+}
+
+.k-ports-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
 }
 
 /* ── Sparkline Charts ─────────────────────────────────────────── */
