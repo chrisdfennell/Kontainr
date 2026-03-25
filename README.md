@@ -15,17 +15,25 @@
 
 ---
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/chrisdfennell/Kontainr/refs/heads/dev/Kontainr/wwwroot/screenshot1.png" width="900" alt="Kontainr Dashboard"/>
+</p>
+
+---
+
 ## Features
 
 ### Container Management
 - **Dashboard** — overview of running/stopped containers, images, volumes with live CPU/RAM stats
-- **Crash/Restart Alerts** — automatic detection of crashed or restart-looping containers on dashboard
+- **Crash/Restart Alerts** — automatic detection of crashed or restart-looping containers with webhook notifications (Discord, Slack, or generic HTTP)
 - **Favorites** — pin containers to the top of the dashboard for quick access
 - **Start, Stop, Restart, Remove** — all with confirmation dialogs and toast notifications
-- **Container Creation Wizard** — pull image, configure ports, volumes, env vars, restart policy, network
-- **Container Config Editor** — edit env vars, ports, restart policy and recreate with new config
+- **Container Creation Wizard** — pull image, configure ports, volumes, env vars, restart policy, network, CPU/memory limits
+- **Container Config Editor** — edit env vars, ports, restart policy, network and recreate with new config
+- **Container Clone** — duplicate any container's config as a new container with one click
 - **One-Click Update** — pull latest image and recreate container with the same configuration
 - **Update Checker** — scan all containers for newer registry images
+- **Scheduled Restarts** — cron-style scheduled container restarts (daily, weekly, or interval-based)
 - **Docker Compose Deploy** — upload or paste a `docker-compose.yml` and deploy stacks from the UI
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
 - **Health Check Badges** — healthy/unhealthy/starting indicators on containers
@@ -38,20 +46,27 @@
 - **Clickable Port Links** — port mappings link directly to the service, configurable host URL
 
 ### Terminals
-- **Container Exec** — shell into any running container via `/bin/sh`
-- **SSH Terminal** — connect to remote servers with saved, encrypted credentials
+- **Interactive Container Shell** — full xterm.js TTY terminal into any running container
+- **Interactive SSH Terminal** — full xterm.js TTY terminal to remote servers
+- **Terminal Hub** — all SSH connections and running containers in one place
 - **Init Commands** — configurable startup commands to escape login menus (e.g. QNAP `Q, Y`)
-- **Command History** — arrow key navigation, auto-focus after execution
 
 ### Resource Management
 - **Images** — list, pull, remove, prune dangling images
-- **Volumes** — list, remove, prune unused volumes
-- **Networks** — list, remove, prune unused networks
+- **Image Inspector** — view layers, entrypoint, env vars, exposed ports, volumes, architecture
+- **Volumes** — list, create, remove, prune unused volumes
+- **Networks** — list, create (bridge/host/overlay/macvlan), remove, prune unused networks
 - **System Info** — Docker version, CPU/RAM, storage driver, kernel, full system prune
+
+### App Templates
+- **55+ Pre-built Templates** — one-click deploy for Nginx, PostgreSQL, Redis, Grafana, Pi-hole, Jellyfin, the full *arr stack, and more
+- **12 Categories** — web servers, databases, monitoring, media, dev tools, security, networking, and more
+- **Configurable Deploy** — change container name, ports, and env vars before deploying
 
 ### Settings & Security
 - **Basic Auth** — optional password protection via environment variables
 - **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
+- **Webhook Notifications** — Discord, Slack, or generic HTTP alerts for container crashes
 - **Configurable Host URL** — port links use your NAS hostname instead of localhost
 - **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
 - **Backup & Restore** — export/import all settings as JSON
@@ -119,7 +134,8 @@ volumes:
 
 Mount a volume to `/app/data` to persist:
 - SSH connection configs (passwords encrypted with ASP.NET Data Protection)
-- Host URL and app settings
+- Webhook configuration and scheduled restarts
+- Host URL, theme, favorites, and app settings
 - Encryption keys
 
 ### SSH Connections
@@ -129,7 +145,14 @@ Mount a volume to `/app/data` to persist:
 3. Enter host, port, username, password
 4. Optionally add **Init Commands** (comma-separated) for servers with login menus (e.g. `Q, Y` for QNAP NAS)
 5. Click **Test Connection** to verify, then **Save**
-6. Click **Connect** to open a terminal session
+6. Go to **Terminal** in the sidebar and click **Connect**
+
+### Webhook Notifications
+
+1. Go to **Settings** > **Webhook Notifications**
+2. Paste a Discord webhook URL, Slack webhook URL, or any HTTP endpoint
+3. Enable notifications and choose alert types (crash, restart loop)
+4. Kontainr auto-detects the URL format and sends rich embeds for Discord, formatted messages for Slack, or generic JSON for everything else
 
 ### Port Link Host URL
 
@@ -160,6 +183,7 @@ docker build -t kontainr -f Kontainr/Dockerfile Kontainr/
 - **Blazor Server** (.NET 10) — real-time interactive UI
 - **Docker.DotNet** — Docker Engine API client
 - **SSH.NET** — SSH client for remote terminal
+- **xterm.js** — interactive terminal emulator
 - **ASP.NET Data Protection** — encrypted credential storage
 - **Bootstrap 5** — base CSS with custom dark theme
 
