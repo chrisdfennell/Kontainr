@@ -1,8 +1,30 @@
 @inherits LayoutComponentBase
+@inject SshSettingsService Settings
+@inject IJSRuntime JS
 
-<div class="k-layout">
+<div class="k-layout @(theme == "light" ? "k-light" : "")">
     <NavMenu />
     <div class="k-main">
+        <div class="k-global-bar">
+            <div class="k-global-search-wrap">
+                <input class="k-global-search" type="text" placeholder="Search containers, images, volumes..."
+                       @bind="searchQuery" @bind:event="oninput" @onkeydown="HandleSearchKey" />
+                @if (!string.IsNullOrWhiteSpace(searchQuery))
+                {
+                    <div class="k-search-hint">Press Enter to search</div>
+                }
+            </div>
+            <button class="k-theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
+                @if (theme == "dark")
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                }
+                else
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                }
+            </button>
+        </div>
         @Body
     </div>
 </div>
@@ -14,3 +36,36 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">x</span>
 </div>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    private string theme = "dark";
+    private string searchQuery = "";
+
+    protected override void OnInitialized()
+    {
+        theme = Settings.GetTheme();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("kontainr.setTheme", theme);
+    }
+
+    private async Task ToggleTheme()
+    {
+        theme = theme == "dark" ? "light" : "dark";
+        Settings.SetTheme(theme);
+        await JS.InvokeVoidAsync("kontainr.setTheme", theme);
+    }
+
+    private void HandleSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(searchQuery))
+        {
+            Nav.NavigateTo($"/search?q={Uri.EscapeDataString(searchQuery.Trim())}");
+            searchQuery = "";
+        }
+    }
+}

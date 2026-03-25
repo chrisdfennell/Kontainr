@@ -44,6 +44,10 @@ window.kontainr = {
         ctx.lineWidth = 1.5 * (window.devicePixelRatio || 1);
         ctx.stroke();
     },
+    setTheme: function (theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        document.body.className = theme === 'light' ? 'k-light' : '';
+    },
     downloadText: function (filename, text) {
         const blob = new Blob([text], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
