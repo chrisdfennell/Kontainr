@@ -1,5 +1,5 @@
 @page "/terminal/{ConnectionId}"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject SshSessionManager SessionManager
 @inject SshSettingsService SshSettings
 @inject ToastService Toast
