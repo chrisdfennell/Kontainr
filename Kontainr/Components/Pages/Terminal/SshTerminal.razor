@@ -72,15 +72,25 @@
     private List<string> history = [];
     private int historyIndex = -1;
 
-    protected override async Task OnInitializedAsync()
+    private bool jsReady;
+
+    protected override void OnInitialized()
     {
         config = SshSettings.GetConnection(ConnectionId);
         if (config is null)
         {
             error = "Connection not found. Go to Settings to configure SSH connections.";
-            return;
         }
-        await Connect();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            jsReady = true;
+            if (config is not null)
+                await Connect();
+        }
     }
 
     private async Task Connect()
@@ -103,7 +113,8 @@
         }
         connecting = false;
         StateHasChanged();
-        await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
+        if (jsReady)
+            await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
     }
 
     private void Disconnect()
@@ -165,7 +176,8 @@
 
         busy = false;
         StateHasChanged();
-        await JS.InvokeVoidAsync("kontainr.scrollToBottom", "ssh-terminal-output");
+        if (jsReady)
+            await JS.InvokeVoidAsync("kontainr.scrollToBottom", "ssh-terminal-output");
     }
 
     private void ClearTerminal()
