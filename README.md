@@ -5,7 +5,7 @@
 <h1 align="center">Kontainr</h1>
 
 <p align="center">
-  A lightweight Docker dashboard for managing containers, viewing logs, and running commands — built with Blazor Server and .NET 10.
+  A lightweight Docker dashboard for managing containers, logs, and services.
 </p>
 
 <p align="center">
@@ -19,22 +19,38 @@
 
 ## Features
 
+### Container Management
 - **Dashboard** — overview of running/stopped containers, images, volumes with live CPU/RAM stats
-- **Container Management** — start, stop, restart, remove containers with confirmation dialogs
+- **Start, Stop, Restart, Remove** — all with confirmation dialogs and toast notifications
+- **Container Creation Wizard** — pull image, configure ports, volumes, env vars, restart policy, network
+- **One-Click Update** — pull latest image and recreate container with the same configuration
+- **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
+- **Health Check Badges** — healthy/unhealthy/starting indicators on containers
+
+### Monitoring
+- **CPU/RAM Sparkline Graphs** — resource usage over time on container detail pages
 - **Live Log Streaming** — real-time `docker logs -f` with search/filter
-- **Container Terminal** — exec into any running container via `/bin/sh`
-- **SSH Terminal** — connect to remote servers with saved, encrypted credentials and configurable init commands (e.g. QNAP menu escape)
-- **Image Management** — list, pull, remove images with prune support
-- **Volumes & Networks** — view and manage with prune operations
-- **Docker Compose Grouping** — containers grouped by Compose project with bulk start/stop/restart
-- **Health Check Display** — healthy/unhealthy/starting badges on containers
-- **Clickable Port Links** — port mappings link directly to the service, configurable host URL
-- **System Info** — Docker version, CPU/RAM, storage driver, full system prune
-- **Toast Notifications** — success/error feedback on all actions
-- **Basic Auth** — optional password protection via environment variables
-- **Dark Theme** — GitHub-dark inspired UI with responsive sidebar
 - **Auto-Refresh** — configurable 3s/5s/10s/30s polling with visual indicator
-- **Settings Page** — configure SSH connections, host URL, all persisted to a Docker volume
+- **Clickable Port Links** — port mappings link directly to the service, configurable host URL
+
+### Terminals
+- **Container Exec** — shell into any running container via `/bin/sh`
+- **SSH Terminal** — connect to remote servers with saved, encrypted credentials
+- **Init Commands** — configurable startup commands to escape login menus (e.g. QNAP `Q, Y`)
+- **Command History** — arrow key navigation, auto-focus after execution
+
+### Resource Management
+- **Images** — list, pull, remove, prune dangling images
+- **Volumes** — list, remove, prune unused volumes
+- **Networks** — list, remove, prune unused networks
+- **System Info** — Docker version, CPU/RAM, storage driver, kernel, full system prune
+
+### Settings & Security
+- **Basic Auth** — optional password protection via environment variables
+- **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
+- **Configurable Host URL** — port links use your NAS hostname instead of localhost
+- **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
+- **Dark Theme** — GitHub-dark inspired UI with responsive sidebar
 
 ## Quick Start
 
@@ -44,7 +60,7 @@ docker run -d \
   -p 8080:8080 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v kontainr-data:/app/data \
-  fennch/kontainr:dev
+  fennch/kontainr:latest
 ```
 
 Then open `http://localhost:8080`.
@@ -59,7 +75,7 @@ docker run -d \
   -v kontainr-data:/app/data \
   -e Auth__Username=admin \
   -e Auth__Password=changeme \
-  fennch/kontainr:dev
+  fennch/kontainr:latest
 ```
 
 ### Docker Compose
@@ -67,7 +83,7 @@ docker run -d \
 ```yaml
 services:
   kontainr:
-    image: fennch/kontainr:dev
+    image: fennch/kontainr:latest
     ports:
       - "8080:8080"
     volumes:
@@ -81,12 +97,6 @@ services:
 volumes:
   kontainr-data:
 ```
-
-## Screenshots
-
-| Dashboard | Containers | Terminal |
-|-----------|-----------|----------|
-| Live stats, auto-refresh | Compose grouping, bulk actions | SSH into remote servers |
 
 ## Configuration
 
@@ -148,10 +158,10 @@ docker build -t kontainr -f Kontainr/Dockerfile Kontainr/
 
 ## CI/CD
 
-Every push to `dev` triggers:
-1. Docker image build and push to `fennch/kontainr:dev` + versioned tag
-2. Auto-incrementing semantic version tag
-3. GitHub Release with changelog
+| Branch | Docker Hub Tags | Release |
+|--------|----------------|---------|
+| `dev` | `fennch/kontainr:dev` | No |
+| `main` | `fennch/kontainr:latest` + `fennch/kontainr:X.X.X` | Yes — Git tag + GitHub Release |
 
 ## License
 
