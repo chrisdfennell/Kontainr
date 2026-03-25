@@ -1,0 +1,177 @@
+@page "/system"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@inject ToastService Toast
+
+<PageTitle>System - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
+
+<div class="k-topbar">
+    <h1>System</h1>
+    <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else if (sysInfo is not null && version is not null)
+    {
+        <div class="k-stat-grid">
+            <div class="k-stat-card">
+                <div class="k-stat-label">Docker Version</div>
+                <div class="k-stat-value blue" style="font-size: 1.3rem;">@version.Version</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Containers</div>
+                <div class="k-stat-value">@sysInfo.Containers</div>
+                <div style="font-size: 0.75rem; color: var(--k-text-muted);">
+                    <span style="color: var(--k-green);">@sysInfo.ContainersRunning running</span> /
+                    <span style="color: var(--k-red);">@sysInfo.ContainersStopped stopped</span>
+                </div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Images</div>
+                <div class="k-stat-value blue">@sysInfo.Images</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">CPUs</div>
+                <div class="k-stat-value">@sysInfo.NCPU</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Memory</div>
+                <div class="k-stat-value" style="font-size: 1.3rem;">@FormatBytes(sysInfo.MemTotal)</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">OS / Arch</div>
+                <div class="k-stat-value" style="font-size: 1rem;">@sysInfo.OperatingSystem<br/>@sysInfo.Architecture</div>
+            </div>
+        </div>
+
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Docker Info</div>
+            <div class="k-card-body">
+                <div class="k-detail-grid">
+                    <div class="k-detail-key">Server Version</div>
+                    <div class="k-detail-value k-mono">@sysInfo.ServerVersion</div>
+                    <div class="k-detail-key">Storage Driver</div>
+                    <div class="k-detail-value">@(sysInfo.Driver ?? "-")</div>
+                    <div class="k-detail-key">Kernel</div>
+                    <div class="k-detail-value k-mono">@sysInfo.KernelVersion</div>
+                    <div class="k-detail-key">Docker Root</div>
+                    <div class="k-detail-value k-mono">@sysInfo.DockerRootDir</div>
+                    <div class="k-detail-key">Hostname</div>
+                    <div class="k-detail-value">@sysInfo.Name</div>
+                    <div class="k-detail-key">API Version</div>
+                    <div class="k-detail-value k-mono">@version.APIVersion</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="k-card">
+            <div class="k-card-header">
+                Cleanup
+                <span style="font-size: 0.75rem; color: var(--k-text-muted); font-weight: 400;">Remove unused resources to free disk space</span>
+            </div>
+            <div class="k-card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="k-btn k-btn-danger" @onclick="PruneContainers" disabled="@pruning">Prune Stopped Containers</button>
+                <button class="k-btn k-btn-danger" @onclick="PruneImages" disabled="@pruning">Prune Dangling Images</button>
+                <button class="k-btn k-btn-danger" @onclick="PruneVolumes" disabled="@pruning">Prune Unused Volumes</button>
+                <button class="k-btn k-btn-danger" @onclick="PruneNetworks" disabled="@pruning">Prune Unused Networks</button>
+                <button class="k-btn k-btn-danger" @onclick="PruneAll" disabled="@pruning" style="font-weight: 600;">Prune Everything</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Docker.DotNet.Models.SystemInfoResponse? sysInfo;
+    private Docker.DotNet.Models.VersionResponse? version;
+    private bool loading = true;
+    private string? error;
+    private bool pruning;
+
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? pendingAction;
+    private void ShowConfirm(string t, string m, string b, Func<Task> a) { confirmTitle = t; confirmMessage = m; confirmBtnText = b; pendingAction = a; confirmVisible = true; }
+    private async Task ConfirmAction() { confirmVisible = false; if (pendingAction is not null) await pendingAction(); pendingAction = null; }
+    private void CancelConfirm() { confirmVisible = false; pendingAction = null; }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true; error = null;
+        try
+        {
+            sysInfo = await Docker.GetSystemInfoAsync();
+            version = await Docker.GetVersionAsync();
+        }
+        catch (Exception ex) { error = $"Cannot connect to Docker: {ex.Message}"; }
+        loading = false;
+    }
+
+    private void PruneContainers() => ShowConfirm("Prune Containers", "Remove all stopped containers?", "Prune", async () =>
+    {
+        pruning = true;
+        try { var r = await Docker.PruneContainersAsync(); Toast.Success($"Pruned {r.ContainersDeleted?.Count ?? 0} containers"); }
+        catch (Exception ex) { Toast.Error(ex.Message); }
+        pruning = false;
+    });
+
+    private void PruneImages() => ShowConfirm("Prune Images", "Remove all dangling images?", "Prune", async () =>
+    {
+        pruning = true;
+        try { var r = await Docker.PruneImagesAsync(); Toast.Success($"Reclaimed {FormatBytes((long)r.SpaceReclaimed)}"); }
+        catch (Exception ex) { Toast.Error(ex.Message); }
+        pruning = false;
+    });
+
+    private void PruneVolumes() => ShowConfirm("Prune Volumes", "Remove all unused volumes? Data will be lost.", "Prune", async () =>
+    {
+        pruning = true;
+        try { var r = await Docker.PruneVolumesAsync(); Toast.Success($"Pruned {r.VolumesDeleted?.Count ?? 0} volumes"); }
+        catch (Exception ex) { Toast.Error(ex.Message); }
+        pruning = false;
+    });
+
+    private void PruneNetworks() => ShowConfirm("Prune Networks", "Remove all unused networks?", "Prune", async () =>
+    {
+        pruning = true;
+        try { var r = await Docker.PruneNetworksAsync(); Toast.Success($"Pruned {r.NetworksDeleted?.Count ?? 0} networks"); }
+        catch (Exception ex) { Toast.Error(ex.Message); }
+        pruning = false;
+    });
+
+    private void PruneAll() => ShowConfirm("Prune Everything", "Remove ALL unused containers, images, volumes, and networks? This cannot be undone.", "Prune All", async () =>
+    {
+        pruning = true;
+        try
+        {
+            await Docker.PruneContainersAsync();
+            var imgResult = await Docker.PruneImagesAsync();
+            await Docker.PruneVolumesAsync();
+            await Docker.PruneNetworksAsync();
+            Toast.Success($"System pruned, reclaimed {FormatBytes((long)imgResult.SpaceReclaimed)} from images alone");
+            await LoadAsync();
+        }
+        catch (Exception ex) { Toast.Error(ex.Message); }
+        pruning = false;
+    });
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}

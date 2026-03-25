@@ -1,0 +1,25 @@
+@if (Visible)
+{
+    <div class="k-modal-overlay" @onclick="Cancel">
+        <div class="k-modal" @onclick:stopPropagation="true">
+            <div class="k-modal-header">@Title</div>
+            <div class="k-modal-body">@Message</div>
+            <div class="k-modal-footer">
+                <button class="k-btn" @onclick="Cancel">Cancel</button>
+                <button class="k-btn k-btn-danger" @onclick="Confirm">@ConfirmText</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public string Message { get; set; } = "Are you sure?";
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private async Task Confirm() => await OnConfirm.InvokeAsync();
+    private async Task Cancel() => await OnCancel.InvokeAsync();
+}

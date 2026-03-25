@@ -1,9 +1,13 @@
 @page "/containers"
 @rendermode InteractiveServer
 @inject DockerService Docker
+@inject ToastService Toast
 @implements IDisposable
 
 <PageTitle>Containers - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
 
 <div class="k-topbar">
     <h1>Containers</h1>
@@ -42,12 +46,27 @@
         {
             @foreach (var group in composeGroups)
             {
+                var allRunning = group.Value.All(c => c.IsRunning);
+                var anyRunning = group.Value.Any(c => c.IsRunning);
                 <div class="k-card" style="margin-bottom: 1rem;">
-                    <div class="k-group-header" @onclick="() => ToggleGroup(group.Key)">
-                        <svg class="k-group-chevron @(IsCollapsed(group.Key) ? "collapsed" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="7 7 7 3 17 3 17 7"/></svg>
-                        @group.Key
-                        <span class="k-badge" style="margin-left: auto;">@group.Value.Count containers</span>
+                    <div class="k-group-header">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; cursor: pointer;" @onclick="() => ToggleGroup(group.Key)">
+                            <svg class="k-group-chevron @(IsCollapsed(group.Key) ? "collapsed" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="7 7 7 3 17 3 17 7"/></svg>
+                            @group.Key
+                            <span class="k-badge">@group.Value.Count containers</span>
+                        </div>
+                        <div class="k-btn-group" @onclick:stopPropagation="true">
+                            @if (anyRunning)
+                            {
+                                <button class="k-btn" @onclick="() => BulkStopGroup(group.Key)" disabled="@(bulkAction is not null)" title="Stop all">Stop All</button>
+                                <button class="k-btn" @onclick="() => BulkRestartGroup(group.Key)" disabled="@(bulkAction is not null)" title="Restart all">Restart All</button>
+                            }
+                            @if (!allRunning)
+                            {
+                                <button class="k-btn k-btn-success" @onclick="() => BulkStartGroup(group.Key)" disabled="@(bulkAction is not null)" title="Start all">Start All</button>
+                            }
+                        </div>
                     </div>
                     @if (!IsCollapsed(group.Key))
                     {
@@ -70,9 +89,7 @@
 
         @if (composeGroups.Count == 0 && standaloneContainers.Count == 0)
         {
-            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">
-                No containers found.
-            </div>
+            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No containers found.</div>
         }
     }
 </div>
@@ -90,9 +107,17 @@
     private string searchTerm = "";
     private string? error;
     private string? actionInProgress;
+    private string? bulkAction;
     private bool autoRefresh = true;
     private int refreshInterval = 5;
     private Timer? refreshTimer;
+
+    // Confirm dialog
+    private bool confirmVisible;
+    private string confirmTitle = "";
+    private string confirmMessage = "";
+    private string confirmBtnText = "Confirm";
+    private Func<Task>? pendingAction;
 
     protected override async Task OnInitializedAsync()
     {
@@ -118,7 +143,6 @@
             allContainers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
             RebuildGroups();
 
-            // Fetch stats for running containers
             var running = allContainers.Where(c => c.IsRunning).ToList();
             var statsTasks = running.Select(async c =>
             {
@@ -170,32 +194,18 @@
         {
             refreshTimer = new Timer(async _ =>
             {
-                await InvokeAsync(async () =>
-                {
-                    await LoadAsync();
-                    StateHasChanged();
-                });
+                await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
             }, null, TimeSpan.FromSeconds(refreshInterval), TimeSpan.FromSeconds(refreshInterval));
         }
     }
 
     private void ToggleAutoRefresh() => StartAutoRefresh();
-
-    private void ToggleGroup(string key)
-    {
-        if (!collapsedGroups.Remove(key))
-            collapsedGroups.Add(key);
-    }
-
+    private void ToggleGroup(string key) { if (!collapsedGroups.Remove(key)) collapsedGroups.Add(key); }
     private bool IsCollapsed(string key) => collapsedGroups.Contains(key);
 
-    private string GetCpu(string id) =>
-        stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
-
-    private string GetMemory(string id) =>
-        stats.TryGetValue(id, out var s)
-            ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}"
-            : "...";
+    private string GetCpu(string id) => stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
+    private string GetMemory(string id) => stats.TryGetValue(id, out var s)
+        ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}" : "...";
 
     private static string FormatBytes(long bytes)
     {
@@ -204,18 +214,46 @@
         return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
     }
 
+    // ── Confirm dialog helpers ───────────────────────────────────
+
+    private void ShowConfirm(string title, string message, string btnText, Func<Task> action)
+    {
+        confirmTitle = title;
+        confirmMessage = message;
+        confirmBtnText = btnText;
+        pendingAction = action;
+        confirmVisible = true;
+    }
+
+    private async Task ConfirmAction()
+    {
+        confirmVisible = false;
+        if (pendingAction is not null)
+            await pendingAction();
+        pendingAction = null;
+    }
+
+    private void CancelConfirm() { confirmVisible = false; pendingAction = null; }
+
+    // ── Container actions ────────────────────────────────────────
+
     private async Task StartContainer(string id)
     {
         actionInProgress = id;
-        await Docker.StartContainerAsync(id);
+        try { await Docker.StartContainerAsync(id); Toast.Success("Container started"); }
+        catch (Exception ex) { Toast.Error($"Start failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
     }
 
+    private void RequestStop(string id, string name) =>
+        ShowConfirm("Stop Container", $"Stop container \"{name}\"?", "Stop", async () => await StopContainer(id));
+
     private async Task StopContainer(string id)
     {
         actionInProgress = id;
-        await Docker.StopContainerAsync(id);
+        try { await Docker.StopContainerAsync(id); Toast.Success("Container stopped"); }
+        catch (Exception ex) { Toast.Error($"Stop failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
     }
@@ -223,10 +261,58 @@
     private async Task RestartContainer(string id)
     {
         actionInProgress = id;
-        await Docker.RestartContainerAsync(id);
+        try { await Docker.RestartContainerAsync(id); Toast.Success("Container restarted"); }
+        catch (Exception ex) { Toast.Error($"Restart failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
     }
+
+    // ── Bulk actions ─────────────────────────────────────────────
+
+    private void BulkStartGroup(string project) =>
+        ShowConfirm("Start Stack", $"Start all containers in \"{project}\"?", "Start All", async () =>
+        {
+            bulkAction = project;
+            var containers = composeGroups.GetValueOrDefault(project) ?? [];
+            foreach (var c in containers.Where(c => !c.IsRunning))
+            {
+                try { await Docker.StartContainerAsync(c.Id); }
+                catch { }
+            }
+            Toast.Success($"Started stack: {project}");
+            await LoadAsync();
+            bulkAction = null;
+        });
+
+    private void BulkStopGroup(string project) =>
+        ShowConfirm("Stop Stack", $"Stop all containers in \"{project}\"?", "Stop All", async () =>
+        {
+            bulkAction = project;
+            var containers = composeGroups.GetValueOrDefault(project) ?? [];
+            foreach (var c in containers.Where(c => c.IsRunning))
+            {
+                try { await Docker.StopContainerAsync(c.Id); }
+                catch { }
+            }
+            Toast.Success($"Stopped stack: {project}");
+            await LoadAsync();
+            bulkAction = null;
+        });
+
+    private void BulkRestartGroup(string project) =>
+        ShowConfirm("Restart Stack", $"Restart all containers in \"{project}\"?", "Restart All", async () =>
+        {
+            bulkAction = project;
+            var containers = composeGroups.GetValueOrDefault(project) ?? [];
+            foreach (var c in containers.Where(c => c.IsRunning))
+            {
+                try { await Docker.RestartContainerAsync(c.Id); }
+                catch { }
+            }
+            Toast.Success($"Restarted stack: {project}");
+            await LoadAsync();
+            bulkAction = null;
+        });
 
     private void NavigateToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
 
@@ -261,15 +347,31 @@
                                 <span class="k-status-dot"></span>
                                 @c.Status
                             </span>
+                            @if (c.HealthStatus is not null)
+                            {
+                                <span class="k-health-badge @c.HealthClass">@c.HealthStatus</span>
+                            }
                         </td>
                         <td class="k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
                         <td class="k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
-                        <td class="k-mono">@c.PortDisplay</td>
+                        <td @onclick:stopPropagation="true">
+                            @if (c.PublicPorts.Any())
+                            {
+                                @foreach (var p in c.PublicPorts)
+                                {
+                                    <a href="http://localhost:@p.PublicPort" target="_blank" class="k-port-link" title="Open in browser">@p.PublicPort:@p.PrivatePort/@p.Type</a>
+                                }
+                            }
+                            else
+                            {
+                                <span class="k-mono">-</span>
+                            }
+                        </td>
                         <td style="text-align: right;" @onclick:stopPropagation="true">
                             <div class="k-btn-group">
                                 @if (c.IsRunning)
                                 {
-                                    <button class="k-btn" @onclick="() => StopContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Stop">
+                                    <button class="k-btn" @onclick="() => RequestStop(c.Id, c.Name)" disabled="@(actionInProgress == c.Id)" title="Stop">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
                                     </button>
                                     <button class="k-btn" @onclick="() => RestartContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Restart">

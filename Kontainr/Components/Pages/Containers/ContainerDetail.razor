@@ -2,9 +2,13 @@
 @rendermode InteractiveServer
 @inject DockerService Docker
 @inject IJSRuntime JS
+@inject ToastService Toast
 @implements IDisposable
 
 <PageTitle>Container - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
 
 <div class="k-topbar">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -25,7 +29,7 @@
             else
             {
                 <button class="k-btn k-btn-success" @onclick="Start" disabled="@acting">Start</button>
-                <button class="k-btn k-btn-danger" @onclick="Remove" disabled="@acting">Remove</button>
+                <button class="k-btn k-btn-danger" @onclick="RequestRemove" disabled="@acting">Remove</button>
             }
         </div>
     }
@@ -490,10 +494,26 @@
         return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
     }
 
+    // ── Confirm dialog ─────────────────────────────────────────
+
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? pendingAction;
+
+    private void ShowConfirm(string title, string msg, string btn, Func<Task> action)
+    {
+        confirmTitle = title; confirmMessage = msg; confirmBtnText = btn;
+        pendingAction = action; confirmVisible = true;
+    }
+
+    private async Task ConfirmAction() { confirmVisible = false; if (pendingAction is not null) await pendingAction(); pendingAction = null; }
+    private void CancelConfirm() { confirmVisible = false; pendingAction = null; }
+
     private async Task Start()
     {
         acting = true;
-        await Docker.StartContainerAsync(ContainerId);
+        try { await Docker.StartContainerAsync(ContainerId); Toast.Success("Container started"); }
+        catch (Exception ex) { Toast.Error($"Start failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
     }
@@ -501,7 +521,8 @@
     private async Task Stop()
     {
         acting = true;
-        await Docker.StopContainerAsync(ContainerId);
+        try { await Docker.StopContainerAsync(ContainerId); Toast.Success("Container stopped"); }
+        catch (Exception ex) { Toast.Error($"Stop failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
     }
@@ -509,17 +530,20 @@
     private async Task Restart()
     {
         acting = true;
-        await Docker.RestartContainerAsync(ContainerId);
+        try { await Docker.RestartContainerAsync(ContainerId); Toast.Success("Container restarted"); }
+        catch (Exception ex) { Toast.Error($"Restart failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
     }
 
-    private async Task Remove()
-    {
-        acting = true;
-        await Docker.RemoveContainerAsync(ContainerId, force: true);
-        Nav.NavigateTo("/containers");
-    }
+    private void RequestRemove() =>
+        ShowConfirm("Remove Container", $"Permanently remove \"{container?.Name}\"? This cannot be undone.", "Remove", async () =>
+        {
+            acting = true;
+            try { await Docker.RemoveContainerAsync(ContainerId, force: true); Toast.Success("Container removed"); }
+            catch (Exception ex) { Toast.Error($"Remove failed: {ex.Message}"); acting = false; return; }
+            Nav.NavigateTo("/containers");
+        });
 
     private void SetTabOverview() => activeTab = "overview";
     private void SetTabInspect() => activeTab = "inspect";

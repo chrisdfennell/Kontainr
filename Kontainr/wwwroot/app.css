@@ -632,6 +632,123 @@ html, body {
     overflow-y: auto;
 }
 
+/* ── Modal / Confirm Dialog ────────────────────────────────────── */
+
+.k-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+}
+
+.k-modal {
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 12px;
+    width: 420px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.k-modal-header {
+    padding: 1rem 1.25rem;
+    font-weight: 600;
+    font-size: 1rem;
+    border-bottom: 1px solid var(--k-border);
+}
+
+.k-modal-body {
+    padding: 1.25rem;
+    font-size: 0.9rem;
+    color: var(--k-text-muted);
+    line-height: 1.5;
+}
+
+.k-modal-footer {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--k-border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* ── Toast Notifications ──────────────────────────────────────── */
+
+.k-toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.k-toast {
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    pointer-events: auto;
+    animation: toast-in 0.3s ease-out;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.k-toast-success { background: rgba(63, 185, 80, 0.15); border: 1px solid var(--k-green); color: var(--k-green); }
+.k-toast-error { background: rgba(248, 81, 73, 0.15); border: 1px solid var(--k-red); color: var(--k-red); }
+.k-toast-info { background: rgba(88, 166, 255, 0.15); border: 1px solid var(--k-accent); color: var(--k-accent); }
+.k-toast-warning { background: rgba(210, 153, 34, 0.15); border: 1px solid var(--k-yellow); color: var(--k-yellow); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Health Check Badges ──────────────────────────────────────── */
+
+.k-health-badge {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+}
+
+.health-healthy { background: rgba(63, 185, 80, 0.15); color: var(--k-green); }
+.health-unhealthy { background: rgba(248, 81, 73, 0.15); color: var(--k-red); }
+.health-starting { background: rgba(210, 153, 34, 0.15); color: var(--k-yellow); }
+
+/* ── Port Links ───────────────────────────────────────────────── */
+
+.k-port-link {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    margin: 1px 2px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', monospace;
+    font-size: 0.75rem;
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--k-accent);
+    text-decoration: none;
+    transition: background 0.15s;
+}
+
+.k-port-link:hover {
+    background: rgba(88, 166, 255, 0.25);
+    color: var(--k-accent);
+    text-decoration: none;
+}
+
 /* ── Override Blazor defaults ─────────────────────────────────── */
 
 .blazor-error-boundary {

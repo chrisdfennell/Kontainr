@@ -1,0 +1,40 @@
+@inject ToastService ToastService
+@implements IDisposable
+
+<div class="k-toast-container">
+    @foreach (var toast in toasts)
+    {
+        <div class="k-toast k-toast-@toast.Type.ToString().ToLower()">
+            <span>@toast.Message</span>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ToastMessage> toasts = [];
+
+    protected override void OnInitialized()
+    {
+        ToastService.OnShow += ShowToast;
+    }
+
+    private void ShowToast(ToastMessage toast)
+    {
+        InvokeAsync(() =>
+        {
+            toasts.Add(toast);
+            StateHasChanged();
+
+            _ = Task.Delay(4000).ContinueWith(_ => InvokeAsync(() =>
+            {
+                toasts.Remove(toast);
+                StateHasChanged();
+            }));
+        });
+    }
+
+    public void Dispose()
+    {
+        ToastService.OnShow -= ShowToast;
+    }
+}

@@ -77,19 +77,15 @@ public class DockerService : IDisposable
         }, ct);
 
         var buffer = new byte[8192];
-        using var readStream = new MemoryStream();
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 var result = await muxStream.ReadOutputAsync(buffer, 0, buffer.Length, ct);
                 if (result.Count == 0) break;
-
                 var text = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
                 foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
                     onLine(line.TrimEnd());
-                }
             }
         }
         catch (OperationCanceledException) { }
@@ -105,7 +101,7 @@ public class DockerService : IDisposable
             await _client.Containers.GetContainerStatsAsync(id, new ContainerStatsParameters { Stream = false },
                 new Progress<ContainerStatsResponse>(stats => result = stats), cts.Token);
         }
-        catch { /* container may have stopped */ }
+        catch { }
         return result;
     }
 
@@ -151,6 +147,28 @@ public class DockerService : IDisposable
         await _client.Images.CreateImageAsync(
             new ImagesCreateParameters { FromImage = image, Tag = tag },
             null, progress, ct);
+    }
+
+    // ── Prune ────────────────────────────────────────────────────
+
+    public async Task<ContainersPruneResponse> PruneContainersAsync()
+    {
+        return await _client.Containers.PruneContainersAsync();
+    }
+
+    public async Task<ImagesPruneResponse> PruneImagesAsync()
+    {
+        return await _client.Images.PruneImagesAsync(new ImagesPruneParameters());
+    }
+
+    public async Task<VolumesPruneResponse> PruneVolumesAsync()
+    {
+        return await _client.Volumes.PruneAsync();
+    }
+
+    public async Task<NetworksPruneResponse> PruneNetworksAsync()
+    {
+        return await _client.Networks.PruneNetworksAsync();
     }
 
     // ── Volumes ──────────────────────────────────────────────────

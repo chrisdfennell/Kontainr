@@ -1,12 +1,19 @@
 @page "/volumes"
 @rendermode InteractiveServer
 @inject DockerService Docker
+@inject ToastService Toast
 
 <PageTitle>Volumes - Kontainr</PageTitle>
 
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
+
 <div class="k-topbar">
     <h1>Volumes</h1>
-    <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+    <div style="display: flex; gap: 0.5rem;">
+        <button class="k-btn k-btn-danger" @onclick="RequestPrune" disabled="@pruning">Prune Unused</button>
+        <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+    </div>
 </div>
 
 <div class="k-content">
@@ -14,7 +21,6 @@
     {
         <div class="k-error">@error</div>
     }
-
     @if (loading)
     {
         <div class="k-spinner">Loading...</div>
@@ -41,7 +47,7 @@
                             <td class="k-mono" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis;">@vol.Mountpoint</td>
                             <td>@(string.IsNullOrEmpty(vol.CreatedAt) ? "-" : vol.CreatedAt)</td>
                             <td style="text-align: right;">
-                                <button class="k-btn k-btn-danger" @onclick="() => RemoveVolume(vol.Name)" disabled="@(removing == vol.Name)" title="Remove">
+                                <button class="k-btn k-btn-danger" @onclick="() => RequestRemove(vol.Name)" disabled="@(removing == vol.Name)" title="Remove">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 </button>
                             </td>
@@ -50,7 +56,6 @@
                 </tbody>
             </table>
         </div>
-
         @if (volumes.Count == 0)
         {
             <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No volumes found.</div>
@@ -63,39 +68,42 @@
     private bool loading = true;
     private string? error;
     private string? removing;
+    private bool pruning;
+
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? pendingAction;
+    private void ShowConfirm(string t, string m, string b, Func<Task> a) { confirmTitle = t; confirmMessage = m; confirmBtnText = b; pendingAction = a; confirmVisible = true; }
+    private async Task ConfirmAction() { confirmVisible = false; if (pendingAction is not null) await pendingAction(); pendingAction = null; }
+    private void CancelConfirm() { confirmVisible = false; pendingAction = null; }
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
-        loading = true;
-        error = null;
-        try
-        {
-            var response = await Docker.GetVolumesAsync();
-            volumes = response.Volumes ?? [];
-        }
-        catch (Exception ex)
-        {
-            error = $"Cannot connect to Docker: {ex.Message}";
-        }
+        loading = true; error = null;
+        try { volumes = (await Docker.GetVolumesAsync()).Volumes ?? []; }
+        catch (Exception ex) { error = $"Cannot connect to Docker: {ex.Message}"; }
         loading = false;
     }
 
-    private async Task RemoveVolume(string name)
-    {
-        removing = name;
-        try
+    private void RequestRemove(string name) =>
+        ShowConfirm("Remove Volume", $"Remove volume \"{TruncateName(name)}\"? Data will be lost.", "Remove", async () =>
         {
-            await Docker.RemoveVolumeAsync(name);
-            await LoadAsync();
-        }
-        catch (Exception ex)
+            removing = name;
+            try { await Docker.RemoveVolumeAsync(name); Toast.Success("Volume removed"); await LoadAsync(); }
+            catch (Exception ex) { Toast.Error($"Failed: {ex.Message}"); }
+            removing = null;
+        });
+
+    private void RequestPrune() =>
+        ShowConfirm("Prune Volumes", "Remove all unused volumes? Data in unused volumes will be permanently lost.", "Prune", async () =>
         {
-            error = $"Failed to remove volume: {ex.Message}";
-        }
-        removing = null;
-    }
+            pruning = true;
+            try { var r = await Docker.PruneVolumesAsync(); Toast.Success($"Pruned {r.VolumesDeleted?.Count ?? 0} volumes"); await LoadAsync(); }
+            catch (Exception ex) { Toast.Error($"Prune failed: {ex.Message}"); }
+            pruning = false;
+        });
 
     private static string TruncateName(string name) =>
         name.Length > 30 ? name[..12] + "..." + name[^8..] : name;
