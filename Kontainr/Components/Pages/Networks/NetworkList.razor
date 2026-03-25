@@ -11,12 +11,39 @@
 <div class="k-topbar">
     <h1>Networks</h1>
     <div style="display: flex; gap: 0.5rem;">
+        <button class="k-btn k-btn-primary" @onclick="ToggleCreate">Create Network</button>
         <button class="k-btn k-btn-danger" @onclick="RequestPrune" disabled="@pruning">Prune Unused</button>
         <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
     </div>
 </div>
 
 <div class="k-content">
+    @if (showCreate)
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Create Network</div>
+            <div class="k-card-body">
+                <div style="display: flex; gap: 0.75rem; align-items: flex-end; max-width: 500px;">
+                    <div style="flex: 1;">
+                        <label class="k-form-label">Network Name</label>
+                        <input class="k-form-input" type="text" placeholder="my-network" @bind="newNetName" />
+                    </div>
+                    <div style="width: 120px;">
+                        <label class="k-form-label">Driver</label>
+                        <select class="k-form-input" @bind="newNetDriver">
+                            <option value="bridge">bridge</option>
+                            <option value="host">host</option>
+                            <option value="overlay">overlay</option>
+                            <option value="macvlan">macvlan</option>
+                        </select>
+                    </div>
+                    <button class="k-btn k-btn-primary" @onclick="CreateNetwork" disabled="@(string.IsNullOrWhiteSpace(newNetName))">Create</button>
+                    <button class="k-btn" @onclick="ToggleCreate">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (error is not null)
     {
         <div class="k-error">@error</div>
@@ -82,6 +109,9 @@
 @code {
     private IList<Docker.DotNet.Models.NetworkResponse> networks = [];
     private bool loading = true;
+    private bool showCreate;
+    private string newNetName = "";
+    private string newNetDriver = "bridge";
     private string? error;
     private string? removing;
     private bool pruning;
@@ -111,6 +141,21 @@
             catch (Exception ex) { Toast.Error($"Failed: {ex.Message}"); }
             removing = null;
         });
+
+    private void ToggleCreate() { showCreate = !showCreate; newNetName = ""; }
+
+    private async Task CreateNetwork()
+    {
+        if (string.IsNullOrWhiteSpace(newNetName)) return;
+        try
+        {
+            await Docker.CreateNetworkAsync(newNetName.Trim(), newNetDriver);
+            Toast.Success($"Network '{newNetName}' created");
+            showCreate = false; newNetName = "";
+            await LoadAsync();
+        }
+        catch (Exception ex) { Toast.Error($"Failed: {ex.Message}"); }
+    }
 
     private void RequestPrune() =>
         ShowConfirm("Prune Networks", "Remove all unused networks?", "Prune", async () =>

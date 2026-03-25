@@ -847,6 +847,39 @@ html, body {
     color: var(--k-text-muted);
 }
 
+/* ── Template Grid ────────────────────────────────────────────── */
+
+.k-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+}
+
+.k-template-card {
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 8px;
+    padding: 1rem;
+    transition: border-color 0.15s;
+}
+
+.k-template-card:hover {
+    border-color: var(--k-accent);
+}
+
+.k-template-name {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.15rem;
+}
+
+.k-template-category {
+    font-size: 0.75rem;
+    color: var(--k-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 /* ── Global Search Bar ─────────────────────────────────────────── */
 
 .k-global-bar {

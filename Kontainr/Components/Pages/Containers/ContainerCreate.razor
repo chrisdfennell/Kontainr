@@ -134,6 +134,22 @@
     </div>
 
     <div class="k-card" style="margin-bottom: 1rem;">
+        <div class="k-card-header">Resource Limits</div>
+        <div class="k-card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 500px;">
+                <div>
+                    <label class="k-form-label">CPU Limit (cores, e.g. 0.5, 1, 2)</label>
+                    <input class="k-form-input" type="number" step="0.1" min="0" placeholder="0 = unlimited" @bind="cpuLimit" />
+                </div>
+                <div>
+                    <label class="k-form-label">Memory Limit (MB, e.g. 256, 512, 1024)</label>
+                    <input class="k-form-input" type="number" min="0" placeholder="0 = unlimited" @bind="memoryLimitMb" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="k-card" style="margin-bottom: 1rem;">
         <div class="k-card-header">Network</div>
         <div class="k-card-body">
             <div style="max-width: 350px;">
@@ -174,6 +190,8 @@
     private string command = "";
     private string restartPolicy = "unless-stopped";
     private string networkName = "";
+    private double cpuLimit;
+    private long memoryLimitMb;
     private string? error;
     private string createStatus = "";
     private bool creating;
@@ -281,7 +299,9 @@
                     PortBindings = portBindings.Count > 0 ? portBindings : null,
                     Binds = binds.Count > 0 ? binds : null,
                     RestartPolicy = restartPol,
-                    NetworkMode = string.IsNullOrEmpty(networkName) ? null : networkName
+                    NetworkMode = string.IsNullOrEmpty(networkName) ? null : networkName,
+                    NanoCPUs = cpuLimit > 0 ? (long)(cpuLimit * 1_000_000_000) : 0,
+                    Memory = memoryLimitMb > 0 ? memoryLimitMb * 1024 * 1024 : 0
                 }
             };
 
