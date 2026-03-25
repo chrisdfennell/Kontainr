@@ -8,7 +8,16 @@
 
 <div class="k-topbar">
     <h1>App Templates</h1>
-    <input class="k-search" type="text" placeholder="Search templates..." @bind="search" @bind:event="oninput" />
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <select class="k-select" @bind="categoryFilter">
+            <option value="">All Categories</option>
+            @foreach (var cat in categories)
+            {
+                <option value="@cat">@cat</option>
+            }
+        </select>
+        <input class="k-search" type="text" placeholder="Search templates..." @bind="search" @bind:event="oninput" />
+    </div>
 </div>
 
 <div class="k-content">
@@ -17,7 +26,67 @@
         <div class="k-error">@error</div>
     }
 
-    @if (!string.IsNullOrEmpty(deployStatus))
+    @* ── Config dialog before deploy ── *@
+    @if (selectedTemplate is not null)
+    {
+        <div class="k-modal-overlay" @onclick="CancelConfig">
+            <div class="k-modal" style="width: 550px;" @onclick:stopPropagation="true">
+                <div class="k-modal-header">Deploy @selectedTemplate.Name</div>
+                <div class="k-modal-body">
+                    <div style="margin-bottom: 0.75rem;">
+                        <label class="k-form-label">Container Name</label>
+                        <input class="k-form-input" type="text" @bind="configName" />
+                    </div>
+
+                    @if (configPorts.Count > 0)
+                    {
+                        <div style="margin-bottom: 0.75rem;">
+                            <label class="k-form-label">Port Mappings (Host : Container)</label>
+                            @for (int i = 0; i < configPorts.Count; i++)
+                            {
+                                var idx = i;
+                                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.35rem;">
+                                    <input class="k-form-input" style="width: 90px;" type="text" @bind="configPorts[idx].Host" />
+                                    <span style="color: var(--k-text-muted);">:</span>
+                                    <input class="k-form-input" style="width: 90px;" type="text" @bind="configPorts[idx].Container" disabled />
+                                    <span class="k-mono" style="font-size: 0.75rem; color: var(--k-text-muted);">tcp</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (configEnv.Count > 0)
+                    {
+                        <div>
+                            <label class="k-form-label">Environment Variables</label>
+                            @for (int i = 0; i < configEnv.Count; i++)
+                            {
+                                var idx = i;
+                                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.35rem;">
+                                    <input class="k-form-input" style="width: 180px;" type="text" @bind="configEnv[idx].Key" disabled />
+                                    <span style="color: var(--k-text-muted);">=</span>
+                                    <input class="k-form-input" style="flex: 1;" type="text" @bind="configEnv[idx].Value" />
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(deployStatus))
+                    {
+                        <div class="k-pull-status" style="margin-top: 0.75rem;">@deployStatus</div>
+                    }
+                </div>
+                <div class="k-modal-footer">
+                    <button class="k-btn" @onclick="CancelConfig" disabled="@deploying">Cancel</button>
+                    <button class="k-btn k-btn-primary" @onclick="DeployConfigured" disabled="@deploying">
+                        @(deploying ? "Deploying..." : "Deploy")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(deployStatus) && selectedTemplate is null)
     {
         <div class="k-pull-status" style="margin-bottom: 1rem;">@deployStatus</div>
     }
@@ -28,7 +97,7 @@
             <div class="k-template-card">
                 <div class="k-template-name">@tmpl.Name</div>
                 <div class="k-template-category">@tmpl.Category</div>
-                <div class="k-mono" style="font-size: 0.75rem; color: var(--k-text-muted); margin: 0.5rem 0;">@tmpl.Image</div>
+                <div class="k-mono" style="font-size: 0.72rem; color: var(--k-text-muted); margin: 0.4rem 0;">@tmpl.Image</div>
                 @if (tmpl.Ports.Count > 0)
                 {
                     <div style="margin-bottom: 0.5rem;">
@@ -38,8 +107,14 @@
                         }
                     </div>
                 }
-                <button class="k-btn k-btn-primary" style="width: 100%;" @onclick="() => Deploy(tmpl)" disabled="@deploying">
-                    @(deploying && deployingTemplate == tmpl.Name ? "Deploying..." : "Deploy")
+                @if (tmpl.Env.Count > 0)
+                {
+                    <div style="font-size: 0.7rem; color: var(--k-text-muted); margin-bottom: 0.5rem;">
+                        @tmpl.Env.Count env var(s)
+                    </div>
+                }
+                <button class="k-btn k-btn-primary" style="width: 100%;" @onclick="() => ShowConfig(tmpl)">
+                    Deploy
                 </button>
             </div>
         }
@@ -49,51 +124,88 @@
     {
         <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No templates match your search.</div>
     }
+
+    <div style="text-align: center; padding: 1rem; color: var(--k-text-muted); font-size: 0.8rem;">
+        @AppTemplates.Templates.Count templates available
+    </div>
 </div>
 
 @code {
     [Inject] private NavigationManager Nav { get; set; } = default!;
 
     private string search = "";
+    private string categoryFilter = "";
     private string? error;
     private string deployStatus = "";
     private bool deploying;
-    private string? deployingTemplate;
 
-    private IEnumerable<AppTemplate> FilteredTemplates =>
-        string.IsNullOrWhiteSpace(search)
-            ? AppTemplates.Templates
-            : AppTemplates.Templates.Where(t =>
-                t.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                t.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                t.Image.Contains(search, StringComparison.OrdinalIgnoreCase));
+    // Config dialog state
+    private AppTemplate? selectedTemplate;
+    private string configName = "";
+    private List<PortConfig> configPorts = [];
+    private List<EnvConfig> configEnv = [];
 
-    private async Task Deploy(AppTemplate tmpl)
+    private List<string> categories = AppTemplates.Templates
+        .Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
+
+    private IEnumerable<AppTemplate> FilteredTemplates
     {
+        get
+        {
+            var result = AppTemplates.Templates.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(categoryFilter))
+                result = result.Where(t => t.Category == categoryFilter);
+            if (!string.IsNullOrWhiteSpace(search))
+                result = result.Where(t =>
+                    t.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    t.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    t.Image.Contains(search, StringComparison.OrdinalIgnoreCase));
+            return result;
+        }
+    }
+
+    private void ShowConfig(AppTemplate tmpl)
+    {
+        selectedTemplate = tmpl;
+        configName = tmpl.Name.ToLowerInvariant().Replace(" ", "-");
+        configPorts = tmpl.Ports.Select(p => new PortConfig { Host = p.Host, Container = p.Container }).ToList();
+        configEnv = tmpl.Env.Select(e => new EnvConfig { Key = e.Key, Value = e.Value }).ToList();
+        deployStatus = "";
+    }
+
+    private void CancelConfig()
+    {
+        if (!deploying) { selectedTemplate = null; deployStatus = ""; }
+    }
+
+    private async Task DeployConfigured()
+    {
+        if (selectedTemplate is null) return;
         deploying = true;
-        deployingTemplate = tmpl.Name;
         error = null;
-        deployStatus = $"Pulling {tmpl.Image}...";
+        deployStatus = $"Pulling {selectedTemplate.Image}...";
         StateHasChanged();
 
         try
         {
-            var imgParts = tmpl.Image.Split(':', 2);
+            var imgParts = selectedTemplate.Image.Split(':', 2);
             await Docker.PullImageAsync(imgParts[0], imgParts.Length > 1 ? imgParts[1] : "latest",
                 status => { deployStatus = status; InvokeAsync(StateHasChanged); });
 
             var exposedPorts = new Dictionary<string, EmptyStruct>();
             var portBindings = new Dictionary<string, IList<PortBinding>>();
-            foreach (var p in tmpl.Ports)
+            foreach (var p in configPorts.Where(p => !string.IsNullOrWhiteSpace(p.Container)))
             {
                 var key = $"{p.Container}/tcp";
                 exposedPorts[key] = default;
                 portBindings[key] = [new PortBinding { HostPort = p.Host }];
             }
 
-            var env = tmpl.Env.Select(e => $"{e.Key}={e.Value}").ToList();
+            var env = configEnv
+                .Where(e => !string.IsNullOrWhiteSpace(e.Key))
+                .Select(e => $"{e.Key}={e.Value}").ToList();
 
-            var rpKind = tmpl.RestartPolicy switch
+            var rpKind = selectedTemplate.RestartPolicy switch
             {
                 "always" => RestartPolicyKind.Always,
                 "unless-stopped" => RestartPolicyKind.UnlessStopped,
@@ -106,8 +218,8 @@
 
             var result = await Docker.CreateContainerAsync(new CreateContainerParameters
             {
-                Image = tmpl.Image,
-                Name = tmpl.Name.ToLowerInvariant().Replace(" ", "-"),
+                Image = selectedTemplate.Image,
+                Name = string.IsNullOrWhiteSpace(configName) ? null : configName.Trim(),
                 Env = env,
                 ExposedPorts = exposedPorts.Count > 0 ? exposedPorts : null,
                 HostConfig = new HostConfig
@@ -121,7 +233,8 @@
             StateHasChanged();
             await Docker.StartContainerAsync(result.ID);
 
-            Toast.Success($"{tmpl.Name} deployed!");
+            Toast.Success($"{selectedTemplate.Name} deployed!");
+            selectedTemplate = null;
             deployStatus = "";
             Nav.NavigateTo($"/containers/{result.ID}");
         }
@@ -129,9 +242,12 @@
         {
             error = ex.Message;
             deployStatus = "";
-            Toast.Error($"Failed to deploy {tmpl.Name}");
+            Toast.Error($"Failed to deploy {selectedTemplate?.Name}");
         }
 
         deploying = false;
     }
+
+    private class PortConfig { public string Host { get; set; } = ""; public string Container { get; set; } = ""; }
+    private class EnvConfig { public string Key { get; set; } = ""; public string Value { get; set; } = ""; }
 }
