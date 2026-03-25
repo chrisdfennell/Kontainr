@@ -4,7 +4,7 @@ using Kontainr.Models;
 
 namespace Kontainr.Services;
 
-public partial class SshSessionManager : IDisposable
+public class SshSessionManager : IDisposable
 {
     private readonly Dictionary<string, SshSession> _sessions = [];
     private readonly SshSettingsService _settings;
@@ -68,11 +68,11 @@ public partial class SshSession : IDisposable
     public void Connect(List<string>? initCommands = null)
     {
         _client.Connect();
-        _shell = _client.CreateShellStream("xterm", 200, 50, 200, 50, 8192);
+        _shell = _client.CreateShellStream("xterm", 200, 50, 200, 50, 16384);
 
-        // Wait for initial output (login banner, MOTD, menus)
-        Thread.Sleep(1500);
-        DrainOutput();
+        // Wait for initial output to settle (login banner, MOTD, menus)
+        WaitForOutput(2000);
+        DrainAll();
 
         // Execute user-configured init commands (e.g. "Q", "Y" to escape QNAP menu)
         if (initCommands is { Count: > 0 })
@@ -80,22 +80,28 @@ public partial class SshSession : IDisposable
             foreach (var cmd in initCommands)
             {
                 _shell.WriteLine(cmd);
-                Thread.Sleep(800);
-                DrainOutput();
+                WaitForOutput(1500);
+                DrainAll();
             }
+            // Extra wait after all init commands for the shell to fully settle
+            Thread.Sleep(1000);
+            DrainAll();
         }
 
-        // Send a marker command to find the prompt and confirm shell is ready
+        // Confirm shell is ready by sending a known command
         _shell.WriteLine("echo __KONTAINR_READY__");
-        Thread.Sleep(500);
-        var readyOutput = DrainOutput();
+        WaitForOutput(1000);
+        var readyOutput = DrainAll();
 
-        // Extract the prompt pattern from the output
+        // Extract the prompt pattern
         var readyLines = readyOutput.Split('\n');
         foreach (var line in readyLines)
         {
-            var clean = StripAnsi(line).Trim();
-            if (clean.Length > 0 && !clean.Contains("__KONTAINR_READY__") && !clean.Contains("echo "))
+            var clean = StripAnsiAndTui(line).Trim();
+            if (clean.Length > 0 && clean.Length < 80
+                && !clean.Contains("__KONTAINR_READY__")
+                && !clean.Contains("echo ")
+                && (clean.EndsWith('$') || clean.EndsWith('#') || clean.EndsWith('>')))
             {
                 _lastPrompt = clean;
                 break;
@@ -109,15 +115,15 @@ public partial class SshSession : IDisposable
             throw new InvalidOperationException("Not connected");
 
         // Drain any leftover data
-        DrainOutput();
+        DrainAll();
 
         // Use a unique marker to delimit output
-        var marker = $"__KONTAINR_{Guid.NewGuid():N}__";
+        var marker = $"__KTR_{Guid.NewGuid():N}__";
         _shell.WriteLine($"{command}; echo {marker}");
 
         var output = new System.Text.StringBuilder();
         var timeout = DateTime.UtcNow.AddSeconds(30);
-        await Task.Delay(150);
+        await Task.Delay(200);
 
         while (DateTime.UtcNow < timeout)
         {
@@ -133,7 +139,10 @@ public partial class SshSession : IDisposable
             }
             else
             {
-                await Task.Delay(50);
+                await Task.Delay(80);
+                // Check one more time after a longer pause
+                if (!_shell.DataAvailable && output.ToString().Contains(marker))
+                    break;
             }
         }
 
@@ -142,45 +151,42 @@ public partial class SshSession : IDisposable
 
     private string CleanOutput(string raw, string command, string marker)
     {
-        // Strip ANSI escape codes
-        var cleaned = StripAnsi(raw);
-
-        var lines = cleaned.Split('\n').ToList();
+        var cleaned = StripAnsiAndTui(raw);
+        var lines = cleaned.Split('\n');
         var result = new List<string>();
         var foundCommand = false;
+        var cmdWithMarker = $"{command}; echo {marker}";
 
         foreach (var rawLine in lines)
         {
             var line = rawLine.TrimEnd('\r');
+            var trimmed = line.Trim();
 
-            // Skip the echoed command line
-            if (!foundCommand && (line.Contains(command) || line.Contains($"{command}; echo {marker}")))
+            // Skip the echoed command line (may include the prompt prefix)
+            if (!foundCommand && (trimmed.Contains(cmdWithMarker) || trimmed.EndsWith(command)))
             {
                 foundCommand = true;
                 continue;
             }
 
             // Skip marker lines
-            if (line.Contains(marker))
+            if (trimmed.Contains(marker) || trimmed.Contains($"echo {marker}"))
                 continue;
 
-            // Skip prompt-only lines at the end
-            if (line.Trim() == _lastPrompt.Trim())
-                continue;
-
-            // Skip lines that are just the prompt with the marker
-            if (line.Contains("echo " + marker))
+            // Skip empty prompt-only lines
+            if (trimmed == _lastPrompt.Trim())
                 continue;
 
             if (foundCommand)
                 result.Add(line);
         }
 
-        // Remove trailing empty lines and prompt lines
+        // Remove trailing empty/prompt lines
         while (result.Count > 0)
         {
             var last = result[^1].Trim();
-            if (last == "" || last == _lastPrompt.Trim() || last.EndsWith("$ ") || last.EndsWith("# "))
+            if (last == "" || last == _lastPrompt.Trim()
+                || last.EndsWith("$ ") || last.EndsWith("# ") || last.EndsWith("> "))
                 result.RemoveAt(result.Count - 1);
             else
                 break;
@@ -189,29 +195,115 @@ public partial class SshSession : IDisposable
         return string.Join('\n', result).Trim();
     }
 
-    private string DrainOutput()
+    /// <summary>
+    /// Wait for data to arrive, with a max wait time.
+    /// </summary>
+    private void WaitForOutput(int maxMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(maxMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (_shell?.DataAvailable == true)
+            {
+                // Data is coming — wait a bit more for it to finish
+                Thread.Sleep(200);
+                return;
+            }
+            Thread.Sleep(100);
+        }
+    }
+
+    /// <summary>
+    /// Drain all available output from the shell, waiting for silence.
+    /// </summary>
+    private string DrainAll()
     {
         if (_shell is null) return "";
         var sb = new System.Text.StringBuilder();
-        while (_shell.DataAvailable)
+
+        // Read in a loop until no more data arrives
+        for (int i = 0; i < 20; i++)
         {
-            sb.Append(_shell.Read());
-            Thread.Sleep(50);
+            if (_shell.DataAvailable)
+            {
+                sb.Append(_shell.Read());
+                Thread.Sleep(100);
+            }
+            else
+            {
+                // Wait a bit to see if more data comes
+                Thread.Sleep(150);
+                if (_shell.DataAvailable)
+                {
+                    sb.Append(_shell.Read());
+                    Thread.Sleep(100);
+                }
+                else
+                {
+                    break;
+                }
+            }
         }
         return sb.ToString();
     }
 
-    private static string StripAnsi(string input)
+    /// <summary>
+    /// Strip ANSI escape sequences, TUI box-drawing characters, and control chars.
+    /// </summary>
+    private static string StripAnsiAndTui(string input)
     {
-        // Remove ANSI escape sequences, box drawing artifacts, and control chars
-        var result = AnsiRegex().Replace(input, "");
-        // Remove remaining control characters except newline/tab
-        result = ControlCharRegex().Replace(result, "");
-        return result;
+        // Remove all ANSI escape sequences
+        var result = AnsiEscapeRegex().Replace(input, "");
+        // Remove OSC sequences (title setting etc)
+        result = OscRegex().Replace(result, "");
+        // Remove remaining CSI sequences
+        result = CsiRegex().Replace(result, "");
+        // Remove box-drawing border lines (lines that are mostly +, -, |, spaces)
+        var lines = result.Split('\n');
+        var cleaned = new List<string>();
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            // Skip lines that are box borders
+            if (IsBoxLine(trimmed))
+                continue;
+            // Remove leading/trailing pipe characters from TUI
+            var stripped = trimmed;
+            if (stripped.StartsWith('|'))
+                stripped = stripped[1..];
+            if (stripped.EndsWith('|'))
+                stripped = stripped[..^1];
+            // If after stripping pipes the line is just whitespace/borders, skip it
+            if (IsBoxLine(stripped.Trim()))
+                continue;
+            // Remove control characters except newline
+            stripped = ControlCharRegex().Replace(stripped, "");
+            cleaned.Add(stripped);
+        }
+        return string.Join('\n', cleaned);
     }
 
-    [GeneratedRegex(@"\x1B\[[0-9;]*[a-zA-Z]|\x1B\].*?(\x07|\x1B\\)|\x1B[()][0-9A-B]|\x1B\[[\?]?[0-9;]*[hlm]")]
-    private static partial Regex AnsiRegex();
+    private static bool IsBoxLine(string line)
+    {
+        if (string.IsNullOrEmpty(line)) return false;
+        // A box line is made up of +, -, |, spaces, and maybe >>
+        var boxChars = 0;
+        foreach (var c in line)
+        {
+            if (c is '+' or '-' or '|' or ' ' or '>')
+                boxChars++;
+        }
+        return boxChars > line.Length * 0.85;
+    }
+
+    [GeneratedRegex(@"\x1B\[[0-9;]*[A-Za-z]")]
+    private static partial Regex AnsiEscapeRegex();
+
+    [GeneratedRegex(@"\x1B\][^\x07]*(\x07|\x1B\\)")]
+    private static partial Regex OscRegex();
+
+    [GeneratedRegex(@"\x1B[\[\(][0-9;?]*[A-Za-z]")]
+    private static partial Regex CsiRegex();
 
     [GeneratedRegex(@"[\x00-\x08\x0E-\x1F]")]
     private static partial Regex ControlCharRegex();
