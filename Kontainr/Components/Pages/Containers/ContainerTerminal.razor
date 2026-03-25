@@ -1,0 +1,180 @@
+@page "/containers/{ContainerId}/terminal"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject DockerService Docker
+@inject ToastService Toast
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Terminal - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/containers/@ContainerId" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>Terminal: @containerName</h1>
+        @if (connected)
+        {
+            <span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">Connected</span>
+        }
+    </div>
+    <div class="k-btn-group">
+        @if (!connected)
+        {
+            <button class="k-btn k-btn-success" @onclick="Connect" disabled="@connecting">
+                @(connecting ? "Connecting..." : "Connect")
+            </button>
+        }
+        else
+        {
+            <button class="k-btn k-btn-danger" @onclick="Disconnect">Disconnect</button>
+        }
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+    <div class="k-card">
+        <div class="k-card-header">
+            Interactive Shell
+            <span style="font-size: 0.75rem; color: var(--k-text-muted);">/bin/sh — full TTY</span>
+        </div>
+        <div id="xterm-container" style="padding: 4px; background: #010409; border-radius: 0 0 8px 8px; min-height: 400px;"></div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "";
+
+    private string containerName = "";
+    private bool connected;
+    private bool connecting;
+    private string? error;
+    private string? execId;
+    private Docker.DotNet.MultiplexedStream? stream;
+    private CancellationTokenSource? readCts;
+    private DotNetObjectReference<ContainerTerminal>? dotnetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var inspect = await Docker.InspectContainerAsync(ContainerId);
+                containerName = inspect.Name.TrimStart('/');
+                StateHasChanged();
+
+                if (inspect.State?.Running == true)
+                    await Connect();
+            }
+            catch (Exception ex)
+            {
+                error = $"Failed to load container: {ex.Message}";
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task Connect()
+    {
+        connecting = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Docker.CreateInteractiveExecAsync(ContainerId);
+            execId = result.execId;
+            stream = result.stream;
+            connected = true;
+
+            dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("kontainr.initTerminal", "xterm-container", dotnetRef);
+
+            // Resize to match terminal
+            await Task.Delay(100);
+            var size = await JS.InvokeAsync<TermSize>("kontainr.getTerminalSize", "xterm-container");
+            await Docker.ResizeExecAsync(execId, (uint)size.Rows, (uint)size.Cols);
+
+            // Start reading output
+            readCts = new CancellationTokenSource();
+            _ = ReadOutputLoop(readCts.Token);
+
+            Toast.Success("Terminal connected");
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to connect: {ex.Message}";
+            Toast.Error("Terminal connection failed");
+        }
+
+        connecting = false;
+        StateHasChanged();
+    }
+
+    private async Task ReadOutputLoop(CancellationToken ct)
+    {
+        var buffer = new byte[4096];
+        try
+        {
+            while (!ct.IsCancellationRequested && stream is not null)
+            {
+                var result = await stream.ReadOutputAsync(buffer, 0, buffer.Length, ct);
+                if (result.Count == 0) break;
+
+                var text = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                await InvokeAsync(async () =>
+                {
+                    await JS.InvokeVoidAsync("kontainr.writeTerminal", "xterm-container", text);
+                });
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            await InvokeAsync(() =>
+            {
+                error = $"Terminal disconnected: {ex.Message}";
+                connected = false;
+                StateHasChanged();
+            });
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalInput(string data)
+    {
+        if (stream is null) return;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(data);
+        try
+        {
+            await stream.WriteAsync(bytes, 0, bytes.Length, CancellationToken.None);
+        }
+        catch { }
+    }
+
+    private void Disconnect()
+    {
+        readCts?.Cancel();
+        stream?.Dispose();
+        stream = null;
+        connected = false;
+        Toast.Info("Terminal disconnected");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        readCts?.Cancel();
+        readCts?.Dispose();
+        stream?.Dispose();
+        dotnetRef?.Dispose();
+        try { await JS.InvokeVoidAsync("kontainr.disposeTerminal", "xterm-container"); } catch { }
+    }
+
+    private record TermSize(int Cols, int Rows);
+}

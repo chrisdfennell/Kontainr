@@ -122,6 +122,37 @@ public class DockerService : IDisposable
         return string.IsNullOrEmpty(stderr) ? stdout : $"{stdout}\n{stderr}";
     }
 
+    // ── Interactive Exec ───────────────────────────────────────────
+
+    public async Task<(string execId, MultiplexedStream stream)> CreateInteractiveExecAsync(string containerId)
+    {
+        var exec = await _client.Exec.ExecCreateContainerAsync(containerId, new ContainerExecCreateParameters
+        {
+            AttachStdin = true,
+            AttachStdout = true,
+            AttachStderr = true,
+            Tty = true,
+            Cmd = ["/bin/sh"],
+        });
+
+        var stream = await _client.Exec.StartAndAttachContainerExecAsync(exec.ID, true, default);
+        return (exec.ID, stream);
+    }
+
+    public async Task ResizeExecAsync(string execId, uint rows, uint cols)
+    {
+        // Resize is best-effort — not all Docker API versions support it the same way
+        try
+        {
+            await _client.Containers.ResizeContainerTtyAsync(execId, new ContainerResizeParameters
+            {
+                Height = rows,
+                Width = cols
+            }, CancellationToken.None);
+        }
+        catch { /* silently ignore resize failures */ }
+    }
+
     // ── Images ───────────────────────────────────────────────────
 
     public async Task<IList<ImagesListResponse>> GetImagesAsync()
@@ -338,6 +369,11 @@ public class DockerService : IDisposable
         return await _client.Volumes.ListAsync();
     }
 
+    public async Task CreateVolumeAsync(string name)
+    {
+        await _client.Volumes.CreateAsync(new VolumesCreateParameters { Name = name });
+    }
+
     public async Task RemoveVolumeAsync(string name, bool force = false)
     {
         await _client.Volumes.RemoveAsync(name, force);
@@ -348,6 +384,11 @@ public class DockerService : IDisposable
     public async Task<IList<NetworkResponse>> GetNetworksAsync()
     {
         return await _client.Networks.ListNetworksAsync();
+    }
+
+    public async Task CreateNetworkAsync(string name, string driver = "bridge")
+    {
+        await _client.Networks.CreateNetworkAsync(new NetworksCreateParameters { Name = name, Driver = driver });
     }
 
     public async Task RemoveNetworkAsync(string id)

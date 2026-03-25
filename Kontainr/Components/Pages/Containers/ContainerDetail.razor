@@ -22,6 +22,13 @@
     @if (container is not null)
     {
         <div class="k-btn-group">
+            @if (inspect?.State?.Running == true)
+            {
+                <a href="/containers/@ContainerId/terminal" class="k-btn" style="text-decoration: none;" title="Interactive terminal">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                    Terminal
+                </a>
+            }
             <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
             <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="Pull latest image and recreate container">
                 @(recreating ? recreateStatus : "Update")

@@ -1,0 +1,137 @@
+@page "/templates"
+@rendermode InteractiveServer
+@using global::Docker.DotNet.Models
+@inject DockerService Docker
+@inject ToastService Toast
+
+<PageTitle>App Templates - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>App Templates</h1>
+    <input class="k-search" type="text" placeholder="Search templates..." @bind="search" @bind:event="oninput" />
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (!string.IsNullOrEmpty(deployStatus))
+    {
+        <div class="k-pull-status" style="margin-bottom: 1rem;">@deployStatus</div>
+    }
+
+    <div class="k-template-grid">
+        @foreach (var tmpl in FilteredTemplates)
+        {
+            <div class="k-template-card">
+                <div class="k-template-name">@tmpl.Name</div>
+                <div class="k-template-category">@tmpl.Category</div>
+                <div class="k-mono" style="font-size: 0.75rem; color: var(--k-text-muted); margin: 0.5rem 0;">@tmpl.Image</div>
+                @if (tmpl.Ports.Count > 0)
+                {
+                    <div style="margin-bottom: 0.5rem;">
+                        @foreach (var p in tmpl.Ports)
+                        {
+                            <span class="k-port-link" style="cursor: default;">@p.Host:@p.Container</span>
+                        }
+                    </div>
+                }
+                <button class="k-btn k-btn-primary" style="width: 100%;" @onclick="() => Deploy(tmpl)" disabled="@deploying">
+                    @(deploying && deployingTemplate == tmpl.Name ? "Deploying..." : "Deploy")
+                </button>
+            </div>
+        }
+    </div>
+
+    @if (!FilteredTemplates.Any())
+    {
+        <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No templates match your search.</div>
+    }
+</div>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private string search = "";
+    private string? error;
+    private string deployStatus = "";
+    private bool deploying;
+    private string? deployingTemplate;
+
+    private IEnumerable<AppTemplate> FilteredTemplates =>
+        string.IsNullOrWhiteSpace(search)
+            ? AppTemplates.Templates
+            : AppTemplates.Templates.Where(t =>
+                t.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                t.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                t.Image.Contains(search, StringComparison.OrdinalIgnoreCase));
+
+    private async Task Deploy(AppTemplate tmpl)
+    {
+        deploying = true;
+        deployingTemplate = tmpl.Name;
+        error = null;
+        deployStatus = $"Pulling {tmpl.Image}...";
+        StateHasChanged();
+
+        try
+        {
+            var imgParts = tmpl.Image.Split(':', 2);
+            await Docker.PullImageAsync(imgParts[0], imgParts.Length > 1 ? imgParts[1] : "latest",
+                status => { deployStatus = status; InvokeAsync(StateHasChanged); });
+
+            var exposedPorts = new Dictionary<string, EmptyStruct>();
+            var portBindings = new Dictionary<string, IList<PortBinding>>();
+            foreach (var p in tmpl.Ports)
+            {
+                var key = $"{p.Container}/tcp";
+                exposedPorts[key] = default;
+                portBindings[key] = [new PortBinding { HostPort = p.Host }];
+            }
+
+            var env = tmpl.Env.Select(e => $"{e.Key}={e.Value}").ToList();
+
+            var rpKind = tmpl.RestartPolicy switch
+            {
+                "always" => RestartPolicyKind.Always,
+                "unless-stopped" => RestartPolicyKind.UnlessStopped,
+                "on-failure" => RestartPolicyKind.OnFailure,
+                _ => RestartPolicyKind.No
+            };
+
+            deployStatus = "Creating container...";
+            StateHasChanged();
+
+            var result = await Docker.CreateContainerAsync(new CreateContainerParameters
+            {
+                Image = tmpl.Image,
+                Name = tmpl.Name.ToLowerInvariant().Replace(" ", "-"),
+                Env = env,
+                ExposedPorts = exposedPorts.Count > 0 ? exposedPorts : null,
+                HostConfig = new HostConfig
+                {
+                    PortBindings = portBindings.Count > 0 ? portBindings : null,
+                    RestartPolicy = new RestartPolicy { Name = rpKind }
+                }
+            });
+
+            deployStatus = "Starting...";
+            StateHasChanged();
+            await Docker.StartContainerAsync(result.ID);
+
+            Toast.Success($"{tmpl.Name} deployed!");
+            deployStatus = "";
+            Nav.NavigateTo($"/containers/{result.ID}");
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            deployStatus = "";
+            Toast.Error($"Failed to deploy {tmpl.Name}");
+        }
+
+        deploying = false;
+    }
+}

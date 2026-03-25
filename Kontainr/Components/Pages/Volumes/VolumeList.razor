@@ -11,12 +11,30 @@
 <div class="k-topbar">
     <h1>Volumes</h1>
     <div style="display: flex; gap: 0.5rem;">
+        <button class="k-btn k-btn-primary" @onclick="ToggleCreate">Create Volume</button>
         <button class="k-btn k-btn-danger" @onclick="RequestPrune" disabled="@pruning">Prune Unused</button>
         <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
     </div>
 </div>
 
 <div class="k-content">
+    @if (showCreate)
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Create Volume</div>
+            <div class="k-card-body">
+                <div style="display: flex; gap: 0.75rem; align-items: flex-end; max-width: 500px;">
+                    <div style="flex: 1;">
+                        <label class="k-form-label">Volume Name</label>
+                        <input class="k-form-input" type="text" placeholder="my-volume" @bind="newVolumeName" />
+                    </div>
+                    <button class="k-btn k-btn-primary" @onclick="CreateVolume" disabled="@(string.IsNullOrWhiteSpace(newVolumeName))">Create</button>
+                    <button class="k-btn" @onclick="ToggleCreate">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (error is not null)
     {
         <div class="k-error">@error</div>
@@ -66,6 +84,8 @@
 @code {
     private IList<Docker.DotNet.Models.VolumeResponse> volumes = [];
     private bool loading = true;
+    private bool showCreate;
+    private string newVolumeName = "";
     private string? error;
     private string? removing;
     private bool pruning;
@@ -104,6 +124,21 @@
             catch (Exception ex) { Toast.Error($"Prune failed: {ex.Message}"); }
             pruning = false;
         });
+
+    private void ToggleCreate() { showCreate = !showCreate; newVolumeName = ""; }
+
+    private async Task CreateVolume()
+    {
+        if (string.IsNullOrWhiteSpace(newVolumeName)) return;
+        try
+        {
+            await Docker.CreateVolumeAsync(newVolumeName.Trim());
+            Toast.Success($"Volume '{newVolumeName}' created");
+            showCreate = false; newVolumeName = "";
+            await LoadAsync();
+        }
+        catch (Exception ex) { Toast.Error($"Failed: {ex.Message}"); }
+    }
 
     private static string TruncateName(string name) =>
         name.Length > 30 ? name[..12] + "..." + name[^8..] : name;
