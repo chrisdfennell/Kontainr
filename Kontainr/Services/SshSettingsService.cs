@@ -36,6 +36,29 @@ public class SshSettingsService
         }
     }
 
+    // ── Favorites ─────────────────────────────────────────────────
+
+    public HashSet<string> GetFavorites()
+    {
+        lock (_lock) { return [..Load().FavoriteContainerNames]; }
+    }
+
+    public void ToggleFavorite(string containerName)
+    {
+        lock (_lock)
+        {
+            var settings = Load();
+            if (!settings.FavoriteContainerNames.Remove(containerName))
+                settings.FavoriteContainerNames.Add(containerName);
+            Save(settings);
+        }
+    }
+
+    public bool IsFavorite(string containerName)
+    {
+        lock (_lock) { return Load().FavoriteContainerNames.Contains(containerName); }
+    }
+
     // ── SSH Connections ──────────────────────────────────────────
 
     public List<SshConnectionConfig> GetConnections()

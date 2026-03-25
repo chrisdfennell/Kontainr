@@ -1,0 +1,226 @@
+@page "/containers/{ContainerId}/edit"
+@rendermode InteractiveServer
+@using global::Docker.DotNet.Models
+@inject DockerService Docker
+@inject ToastService Toast
+
+<PageTitle>Edit Container - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/containers/@ContainerId" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>Edit: @containerName</h1>
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Restart Policy</div>
+            <div class="k-card-body">
+                <div style="max-width: 250px;">
+                    <select class="k-form-input" @bind="restartPolicy">
+                        <option value="no">No</option>
+                        <option value="always">Always</option>
+                        <option value="unless-stopped">Unless Stopped</option>
+                        <option value="on-failure">On Failure</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">
+                Environment Variables
+                <button class="k-btn" @onclick="AddEnv">Add Variable</button>
+            </div>
+            <div class="k-card-body">
+                @if (envVars.Count == 0)
+                {
+                    <span style="color: var(--k-text-muted); font-size: 0.85rem;">No environment variables.</span>
+                }
+                @for (int i = 0; i < envVars.Count; i++)
+                {
+                    var idx = i;
+                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                        <input class="k-form-input" style="width: 220px;" type="text" placeholder="KEY" @bind="envVars[idx].Key" />
+                        <span style="color: var(--k-text-muted);">=</span>
+                        <input class="k-form-input" style="flex: 1;" type="text" placeholder="value" @bind="envVars[idx].Value" />
+                        <button class="k-btn k-btn-danger" @onclick="() => envVars.RemoveAt(idx)">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">
+                Port Mappings
+                <button class="k-btn" @onclick="AddPort">Add Port</button>
+            </div>
+            <div class="k-card-body">
+                @if (ports.Count == 0)
+                {
+                    <span style="color: var(--k-text-muted); font-size: 0.85rem;">No port mappings.</span>
+                }
+                @for (int i = 0; i < ports.Count; i++)
+                {
+                    var idx = i;
+                    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                        <input class="k-form-input" style="width: 100px;" type="text" placeholder="Host" @bind="ports[idx].Host" />
+                        <span style="color: var(--k-text-muted);">:</span>
+                        <input class="k-form-input" style="width: 100px;" type="text" placeholder="Container" @bind="ports[idx].Container" />
+                        <select class="k-form-input" style="width: 80px;" @bind="ports[idx].Protocol">
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                        <button class="k-btn k-btn-danger" @onclick="() => ports.RemoveAt(idx)">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(applyStatus))
+        {
+            <div class="k-pull-status" style="margin-bottom: 1rem;">@applyStatus</div>
+        }
+
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="k-btn k-btn-primary" style="padding: 0.5rem 1.5rem;" @onclick="ApplyChanges" disabled="@applying">
+                @(applying ? "Applying..." : "Apply & Recreate")
+            </button>
+            <span style="align-self: center; font-size: 0.8rem; color: var(--k-text-muted);">Container will be stopped, removed, and recreated with the new configuration.</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "";
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private string containerName = "";
+    private string restartPolicy = "no";
+    private bool loading = true;
+    private bool applying;
+    private string? error;
+    private string applyStatus = "";
+    private List<EnvVar> envVars = [];
+    private List<PortMapping> ports = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var inspect = await Docker.InspectContainerAsync(ContainerId);
+            containerName = inspect.Name.TrimStart('/');
+
+            // Parse env vars
+            foreach (var env in inspect.Config.Env ?? [])
+            {
+                var parts = env.Split('=', 2);
+                envVars.Add(new EnvVar { Key = parts[0], Value = parts.Length > 1 ? parts[1] : "" });
+            }
+
+            // Parse ports
+            if (inspect.HostConfig?.PortBindings is not null)
+            {
+                foreach (var (containerPort, bindings) in inspect.HostConfig.PortBindings)
+                {
+                    var portParts = containerPort.Split('/');
+                    var protocol = portParts.Length > 1 ? portParts[1] : "tcp";
+                    foreach (var b in bindings)
+                    {
+                        ports.Add(new PortMapping { Host = b.HostPort, Container = portParts[0], Protocol = protocol });
+                    }
+                }
+            }
+
+            // Parse restart policy
+            restartPolicy = inspect.HostConfig?.RestartPolicy?.Name switch
+            {
+                RestartPolicyKind.Always => "always",
+                RestartPolicyKind.UnlessStopped => "unless-stopped",
+                RestartPolicyKind.OnFailure => "on-failure",
+                _ => "no"
+            };
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to load container: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private void AddEnv() => envVars.Add(new());
+    private void AddPort() => ports.Add(new());
+
+    private async Task ApplyChanges()
+    {
+        applying = true;
+        error = null;
+        applyStatus = "Preparing...";
+        StateHasChanged();
+
+        try
+        {
+            var env = envVars
+                .Where(e => !string.IsNullOrWhiteSpace(e.Key))
+                .Select(e => $"{e.Key}={e.Value}")
+                .ToList();
+
+            var exposedPorts = new Dictionary<string, EmptyStruct>();
+            var portBindings = new Dictionary<string, IList<PortBinding>>();
+            foreach (var p in ports.Where(p => !string.IsNullOrWhiteSpace(p.Container)))
+            {
+                var key = $"{p.Container}/{p.Protocol}";
+                exposedPorts[key] = default;
+                if (!portBindings.ContainsKey(key))
+                    portBindings[key] = [];
+                portBindings[key].Add(new PortBinding { HostPort = p.Host });
+            }
+
+            var rp = new RestartPolicy
+            {
+                Name = restartPolicy switch
+                {
+                    "always" => RestartPolicyKind.Always,
+                    "unless-stopped" => RestartPolicyKind.UnlessStopped,
+                    "on-failure" => RestartPolicyKind.OnFailure,
+                    _ => RestartPolicyKind.No
+                }
+            };
+
+            var newId = await Docker.RecreateWithConfigAsync(ContainerId, env, portBindings, exposedPorts,
+                null, rp, status => { applyStatus = status; InvokeAsync(StateHasChanged); });
+
+            Toast.Success("Container recreated with new config");
+            Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed: {ex.Message}";
+            Toast.Error("Failed to apply changes");
+        }
+
+        applying = false;
+    }
+
+    private class EnvVar { public string Key { get; set; } = ""; public string Value { get; set; } = ""; }
+    private class PortMapping { public string Host { get; set; } = ""; public string Container { get; set; } = ""; public string Protocol { get; set; } = "tcp"; }
+}

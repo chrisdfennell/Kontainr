@@ -1,0 +1,191 @@
+@page "/updates"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@inject ToastService Toast
+
+<PageTitle>Update Checker - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Update Checker</h1>
+    <button class="k-btn k-btn-primary" @onclick="CheckAll" disabled="@checking">
+        @(checking ? $"Checking ({checkedCount}/{totalCount})..." : "Check All for Updates")
+    </button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        @if (updateResults.Any(r => r.Value == true))
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header" style="color: var(--k-green);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--k-green)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Updates Available
+                </div>
+                <table class="k-table">
+                    <thead>
+                        <tr>
+                            <th>Container</th>
+                            <th>Image</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in containers.Where(c => updateResults.GetValueOrDefault(c.Id) == true))
+                        {
+                            <tr>
+                                <td><strong>@c.Name</strong></td>
+                                <td class="k-mono">@c.Image</td>
+                                <td><span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">Update available</span></td>
+                                <td style="text-align: right;">
+                                    <a href="/containers/@c.Id" class="k-btn k-btn-primary" style="text-decoration: none;">Update</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="k-card">
+            <div class="k-card-header">All Containers</div>
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Container</th>
+                        <th>Image</th>
+                        <th>Status</th>
+                        <th>Update</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in containers)
+                    {
+                        <tr>
+                            <td><strong>@c.Name</strong></td>
+                            <td class="k-mono">@c.Image</td>
+                            <td>
+                                <span class="k-status @c.StateClass">
+                                    <span class="k-status-dot"></span>
+                                    @c.State
+                                </span>
+                            </td>
+                            <td>
+                                @if (updateResults.TryGetValue(c.Id, out var hasUpdate))
+                                {
+                                    @if (hasUpdate)
+                                    {
+                                        <span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">New image available</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color: var(--k-text-muted); font-size: 0.8rem;">Up to date</span>
+                                    }
+                                }
+                                else if (checking && checkingId == c.Id)
+                                {
+                                    <span style="color: var(--k-text-muted); font-size: 0.8rem;">Checking...</span>
+                                }
+                                else
+                                {
+                                    <span style="color: var(--k-text-muted); font-size: 0.8rem;">-</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (!checking && updateResults.Count == 0)
+        {
+            <div style="text-align: center; padding: 2rem; color: var(--k-text-muted);">
+                Click "Check All for Updates" to scan your containers for newer images.
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ContainerViewModel> containers = [];
+    private Dictionary<string, bool> updateResults = [];
+    private bool loading = true;
+    private bool checking;
+    private string? error;
+    private string? checkingId;
+    private int checkedCount;
+    private int totalCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var raw = await Docker.GetContainersAsync(true);
+            containers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private async Task CheckAll()
+    {
+        checking = true;
+        updateResults.Clear();
+        checkedCount = 0;
+        totalCount = containers.Count;
+        StateHasChanged();
+
+        // Deduplicate by image to avoid checking the same image multiple times
+        var imageMap = new Dictionary<string, bool>();
+
+        foreach (var c in containers)
+        {
+            checkingId = c.Id;
+            StateHasChanged();
+
+            if (imageMap.TryGetValue(c.Image, out var cached))
+            {
+                updateResults[c.Id] = cached;
+            }
+            else
+            {
+                try
+                {
+                    var hasUpdate = await Docker.CheckImageUpdateAsync(c.Image);
+                    updateResults[c.Id] = hasUpdate;
+                    imageMap[c.Image] = hasUpdate;
+                }
+                catch
+                {
+                    updateResults[c.Id] = false;
+                    imageMap[c.Image] = false;
+                }
+            }
+
+            checkedCount++;
+            StateHasChanged();
+        }
+
+        checkingId = null;
+        checking = false;
+
+        var updatesAvailable = updateResults.Count(r => r.Value);
+        if (updatesAvailable > 0)
+            Toast.Info($"{updatesAvailable} update(s) available");
+        else
+            Toast.Success("All containers are up to date");
+    }
+}

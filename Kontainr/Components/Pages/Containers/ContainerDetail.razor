@@ -22,6 +22,7 @@
     @if (container is not null)
     {
         <div class="k-btn-group">
+            <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
             <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="Pull latest image and recreate container">
                 @(recreating ? recreateStatus : "Update")
             </button>
@@ -222,6 +223,9 @@
                         {
                             <button class="k-btn k-btn-success" @onclick="StartLogStream">Follow</button>
                             <button class="k-btn" @onclick="LoadLogs">Refresh</button>
+                            <button class="k-btn" @onclick="DownloadLogs" title="Download logs">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            </button>
                         }
                     </div>
                 </div>
@@ -386,6 +390,14 @@
             var filtered = lines.Where(l => l.Contains(logFilter, StringComparison.OrdinalIgnoreCase));
             return System.Web.HttpUtility.HtmlEncode(string.Join('\n', filtered));
         }
+    }
+
+    private async Task DownloadLogs()
+    {
+        var source = logStreaming ? logBuffer.ToString() : logContent;
+        if (string.IsNullOrEmpty(source)) return;
+        var fileName = $"{container?.Name ?? "container"}-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
+        await JS.InvokeVoidAsync("kontainr.downloadText", fileName, source);
     }
 
     private async Task SelectLogs()
