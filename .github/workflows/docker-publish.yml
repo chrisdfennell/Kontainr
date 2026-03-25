@@ -2,7 +2,7 @@ name: Build, Push, and Release
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 permissions:
   contents: write
@@ -16,21 +16,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine branch and tags
+        id: meta
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          if [ "$BRANCH" = "main" ]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Get next version
         id: version
+        if: steps.meta.outputs.is_release == 'true'
         run: |
-          # Get the latest tag, default to v0.0.0 if none exists
           LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           if [ -z "$LATEST" ]; then
             LATEST="v0.0.0"
           fi
           echo "Latest tag: $LATEST"
 
-          # Parse major.minor.patch
           VERSION=${LATEST#v}
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-
-          # Auto-increment patch
           PATCH=$((PATCH + 1))
           NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
           echo "New version: $NEW_VERSION"
@@ -47,25 +56,40 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      # Dev branch: push as :dev only
+      - name: Build and push (dev)
+        if: steps.meta.outputs.branch == 'dev'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Kontainr
+          file: ./Kontainr/Dockerfile
+          push: true
+          tags: fennch/kontainr:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Main branch: push as :latest + :version
+      - name: Build and push (main)
+        if: steps.meta.outputs.is_release == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./Kontainr
           file: ./Kontainr/Dockerfile
           push: true
           tags: |
-            fennch/kontainr:dev
+            fennch/kontainr:latest
             fennch/kontainr:${{ steps.version.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Create Git tag
+        if: steps.meta.outputs.is_release == 'true'
         run: |
           git tag ${{ steps.version.outputs.version }}
           git push origin ${{ steps.version.outputs.version }}
 
       - name: Generate release notes
-        id: notes
+        if: steps.meta.outputs.is_release == 'true'
         run: |
           PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)
           if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${{ steps.version.outputs.version }}" ]; then
@@ -74,22 +98,22 @@ jobs:
             COMMITS=$(git log --oneline ${PREV_TAG}..HEAD)
           fi
 
-          # Write to file to handle multiline
-          cat > release-notes.md << 'HEADER'
+          cat > release-notes.md << HEADER
           ## Docker
-          ```
+          \`\`\`
+          docker pull fennch/kontainr:latest
+          \`\`\`
+          Or a pinned version:
+          \`\`\`
           docker pull fennch/kontainr:${{ steps.version.outputs.version_number }}
-          ```
-          Or use the rolling dev tag:
-          ```
-          docker pull fennch/kontainr:dev
-          ```
+          \`\`\`
 
           ## Changes
           HEADER
           echo "$COMMITS" | sed 's/^/- /' >> release-notes.md
 
       - name: Create GitHub Release
+        if: steps.meta.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
