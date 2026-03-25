@@ -861,6 +861,8 @@ html, body {
     border-radius: 8px;
     padding: 1rem;
     transition: border-color 0.15s;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .k-template-card:hover {
@@ -871,6 +873,9 @@ html, body {
     font-weight: 600;
     font-size: 1rem;
     margin-bottom: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .k-template-category {
@@ -878,6 +883,12 @@ html, body {
     color: var(--k-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.k-template-card .k-mono {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ── Global Search Bar ─────────────────────────────────────────── */
