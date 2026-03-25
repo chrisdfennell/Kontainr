@@ -1,15 +1,42 @@
-name: Build and Push to Docker Hub
+name: Build, Push, and Release
 
 on:
   push:
     branches: [dev]
 
+permissions:
+  contents: write
+
 jobs:
-  build-and-push:
+  build-and-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get next version
+        id: version
+        run: |
+          # Get the latest tag, default to v0.0.0 if none exists
+          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          echo "Latest tag: $LATEST"
+
+          # Parse major.minor.patch
+          VERSION=${LATEST#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Auto-increment patch
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION"
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_number=${NEW_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -26,6 +53,47 @@ jobs:
           context: ./Kontainr
           file: ./Kontainr/Dockerfile
           push: true
-          tags: fennch/kontainr:dev
+          tags: |
+            fennch/kontainr:dev
+            fennch/kontainr:${{ steps.version.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Create Git tag
+        run: |
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${{ steps.version.outputs.version }}" ]; then
+            COMMITS=$(git log --oneline -20)
+          else
+            COMMITS=$(git log --oneline ${PREV_TAG}..HEAD)
+          fi
+
+          # Write to file to handle multiline
+          cat > release-notes.md << 'HEADER'
+          ## Docker
+          ```
+          docker pull fennch/kontainr:${{ steps.version.outputs.version_number }}
+          ```
+          Or use the rolling dev tag:
+          ```
+          docker pull fennch/kontainr:dev
+          ```
+
+          ## Changes
+          HEADER
+          echo "$COMMITS" | sed 's/^/- /' >> release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Kontainr ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
