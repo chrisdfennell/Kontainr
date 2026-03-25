@@ -55,13 +55,28 @@ public static class AppTemplates
         // Media
         new("Jellyfin", "Media Server", "jellyfin/jellyfin:latest", [("8096", "8096")], [], "unless-stopped"),
         new("Plex", "Media Server", "lscr.io/linuxserver/plex:latest", [("32400", "32400")], [], "unless-stopped"),
-        new("Sonarr", "TV Show Manager", "lscr.io/linuxserver/sonarr:latest", [("8989", "8989")], [], "unless-stopped"),
-        new("Radarr", "Movie Manager", "lscr.io/linuxserver/radarr:latest", [("7878", "7878")], [], "unless-stopped"),
-        new("Prowlarr", "Indexer Manager", "lscr.io/linuxserver/prowlarr:latest", [("9696", "9696")], [], "unless-stopped"),
-        new("Bazarr", "Subtitle Manager", "lscr.io/linuxserver/bazarr:latest", [("6767", "6767")], [], "unless-stopped"),
-        new("Overseerr", "Media Requests", "lscr.io/linuxserver/overseerr:latest", [("5055", "5055")], [], "unless-stopped"),
-        new("qBittorrent", "Torrent Client", "lscr.io/linuxserver/qbittorrent:latest", [("8080", "8080"), ("6881", "6881")], [], "unless-stopped"),
-        new("NZBGet", "Usenet Downloader", "lscr.io/linuxserver/nzbget:latest", [("6789", "6789")], [], "unless-stopped"),
+        // *arr Stack
+        new("Sonarr", "*arr Stack", "lscr.io/linuxserver/sonarr:latest", [("8989", "8989")], [], "unless-stopped"),
+        new("Radarr", "*arr Stack", "lscr.io/linuxserver/radarr:latest", [("7878", "7878")], [], "unless-stopped"),
+        new("Lidarr", "*arr Stack", "lscr.io/linuxserver/lidarr:latest", [("8686", "8686")], [], "unless-stopped"),
+        new("Readarr", "*arr Stack", "lscr.io/linuxserver/readarr:develop", [("8787", "8787")], [], "unless-stopped"),
+        new("Whisparr", "*arr Stack", "ghcr.io/hotio/whisparr:latest", [("6969", "6969")], [], "unless-stopped"),
+        new("Prowlarr", "*arr Stack", "lscr.io/linuxserver/prowlarr:latest", [("9696", "9696")], [], "unless-stopped"),
+        new("Bazarr", "*arr Stack", "lscr.io/linuxserver/bazarr:latest", [("6767", "6767")], [], "unless-stopped"),
+        new("Overseerr", "*arr Stack", "lscr.io/linuxserver/overseerr:latest", [("5055", "5055")], [], "unless-stopped"),
+        new("Requestrr", "*arr Stack", "thomst08/requestrr:latest", [("4545", "4545")], [], "unless-stopped"),
+        new("Tautulli", "*arr Stack", "lscr.io/linuxserver/tautulli:latest", [("8181", "8181")], [], "unless-stopped"),
+        new("Flaresolverr", "*arr Stack", "ghcr.io/flaresolverr/flaresolverr:latest", [("8191", "8191")], [], "unless-stopped"),
+        new("Recyclarr", "*arr Stack", "ghcr.io/recyclarr/recyclarr:latest", [], [], "unless-stopped"),
+        new("Autobrr", "*arr Stack", "ghcr.io/autobrr/autobrr:latest", [("7474", "7474")], [], "unless-stopped"),
+        new("Unpackerr", "*arr Stack", "ghcr.io/unpackerr/unpackerr:latest", [], [], "unless-stopped"),
+
+        // Download Clients
+        new("qBittorrent", "Download Client", "lscr.io/linuxserver/qbittorrent:latest", [("8080", "8080"), ("6881", "6881")], [], "unless-stopped"),
+        new("Transmission", "Download Client", "lscr.io/linuxserver/transmission:latest", [("9091", "9091"), ("51413", "51413")], [], "unless-stopped"),
+        new("Deluge", "Download Client", "lscr.io/linuxserver/deluge:latest", [("8112", "8112"), ("6881", "6881")], [], "unless-stopped"),
+        new("SABnzbd", "Download Client", "lscr.io/linuxserver/sabnzbd:latest", [("8080", "8080")], [], "unless-stopped"),
+        new("NZBGet", "Download Client", "lscr.io/linuxserver/nzbget:latest", [("6789", "6789")], [], "unless-stopped"),
 
         // Dev Tools
         new("Gitea", "Git Server", "gitea/gitea:latest", [("3000", "3000"), ("2222", "22")], [], "unless-stopped"),
