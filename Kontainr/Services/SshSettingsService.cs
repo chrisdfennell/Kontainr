@@ -36,6 +36,38 @@ public class SshSettingsService
         }
     }
 
+    // ── Theme ─────────────────────────────────────────────────────
+
+    public string GetTheme()
+    {
+        lock (_lock) { return Load().Theme; }
+    }
+
+    public void SetTheme(string theme)
+    {
+        lock (_lock) { var s = Load(); s.Theme = theme; Save(s); }
+    }
+
+    // ── Export / Import ──────────────────────────────────────────
+
+    public string ExportSettings()
+    {
+        lock (_lock)
+        {
+            return JsonSerializer.Serialize(Load(), new JsonSerializerOptions { WriteIndented = true });
+        }
+    }
+
+    public void ImportSettings(string json)
+    {
+        lock (_lock)
+        {
+            var settings = JsonSerializer.Deserialize<AppSettings>(json);
+            if (settings is not null)
+                Save(settings);
+        }
+    }
+
     // ── Favorites ─────────────────────────────────────────────────
 
     public HashSet<string> GetFavorites()

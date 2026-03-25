@@ -1,0 +1,58 @@
+@page "/audit"
+@rendermode InteractiveServer
+@inject AuditService Audit
+
+<PageTitle>Audit Log - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Audit Log</h1>
+</div>
+
+<div class="k-content">
+    <div class="k-card">
+        <table class="k-table">
+            <thead>
+                <tr>
+                    <th style="width: 160px;">Timestamp</th>
+                    <th style="width: 120px;">Action</th>
+                    <th>Target</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in entries)
+                {
+                    <tr>
+                        <td style="color: var(--k-text-muted); font-size: 0.8rem;">@entry.Timestamp.ToLocalTime().ToString("g")</td>
+                        <td>
+                            <span class="k-badge" style="@ActionStyle(entry.Action)">@entry.Action</span>
+                        </td>
+                        <td><strong>@entry.Target</strong></td>
+                        <td style="color: var(--k-text-muted);">@(entry.Detail ?? "-")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (entries.Count == 0)
+        {
+            <div style="text-align: center; padding: 2rem; color: var(--k-text-muted);">No actions recorded yet.</div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<AuditEntry> entries = [];
+
+    protected override void OnInitialized()
+    {
+        entries = Audit.GetEntries(200);
+    }
+
+    private static string ActionStyle(string action) => action.ToLowerInvariant() switch
+    {
+        "start" or "create" or "pull" => "background: rgba(63, 185, 80, 0.15); color: var(--k-green);",
+        "stop" or "remove" or "prune" => "background: rgba(248, 81, 73, 0.15); color: var(--k-red);",
+        "restart" or "update" or "recreate" => "background: rgba(88, 166, 255, 0.15); color: var(--k-accent);",
+        _ => ""
+    };
+}

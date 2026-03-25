@@ -1,0 +1,141 @@
+@page "/search"
+@rendermode InteractiveServer
+@inject DockerService Docker
+
+<PageTitle>Search - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Search: "@Query"</h1>
+</div>
+
+<div class="k-content">
+    @if (loading)
+    {
+        <div class="k-spinner">Searching...</div>
+    }
+    else
+    {
+        @if (containers.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Containers (@containers.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th>Name</th><th>Image</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in containers)
+                        {
+                            <tr class="k-clickable" @onclick="() => GoToContainer(c.Id)">
+                                <td><strong>@c.Name</strong></td>
+                                <td class="k-mono">@c.Image</td>
+                                <td><span class="k-status @c.StateClass"><span class="k-status-dot"></span> @c.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (images.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Images (@images.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th>Repository</th><th>Tag</th><th>Size</th></tr></thead>
+                    <tbody>
+                        @foreach (var img in images)
+                        {
+                            var repoTag = img.RepoTags?.FirstOrDefault() ?? "<none>";
+                            var parts = repoTag.Split(':', 2);
+                            <tr>
+                                <td><strong>@parts[0]</strong></td>
+                                <td><span class="k-badge">@(parts.Length > 1 ? parts[1] : "latest")</span></td>
+                                <td>@FormatSize(img.Size)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (volumes.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Volumes (@volumes.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th>Name</th><th>Driver</th></tr></thead>
+                    <tbody>
+                        @foreach (var v in volumes)
+                        {
+                            <tr><td>@v.Name</td><td><span class="k-badge">@v.Driver</span></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (networks.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Networks (@networks.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th>Name</th><th>Driver</th><th>Scope</th></tr></thead>
+                    <tbody>
+                        @foreach (var n in networks)
+                        {
+                            <tr><td><strong>@n.Name</strong></td><td><span class="k-badge">@n.Driver</span></td><td>@n.Scope</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (containers.Count == 0 && images.Count == 0 && volumes.Count == 0 && networks.Count == 0)
+        {
+            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No results found for "@Query".</div>
+        }
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string Query { get; set; } = "";
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private List<ContainerViewModel> containers = [];
+    private List<Docker.DotNet.Models.ImagesListResponse> images = [];
+    private List<Docker.DotNet.Models.VolumeResponse> volumes = [];
+    private List<Docker.DotNet.Models.NetworkResponse> networks = [];
+    private bool loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Query)) { loading = false; return; }
+        loading = true;
+
+        var q = Query.Trim();
+
+        var rawContainers = await Docker.GetContainersAsync(true);
+        containers = rawContainers.Select(ContainerViewModel.FromApi)
+            .Where(c => c.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Image.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name).ToList();
+
+        var rawImages = await Docker.GetImagesAsync();
+        images = rawImages.Where(i => i.RepoTags?.Any(t => t.Contains(q, StringComparison.OrdinalIgnoreCase)) == true).ToList();
+
+        var rawVolumes = await Docker.GetVolumesAsync();
+        volumes = (rawVolumes.Volumes ?? []).Where(v => v.Name.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var rawNetworks = await Docker.GetNetworksAsync();
+        networks = rawNetworks.Where(n => n.Name.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        loading = false;
+    }
+
+    private void GoToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject DockerService Docker
 @inject SshSettingsService Settings
+@inject ContainerEventService Events
 @implements IDisposable
 
 <PageTitle>Dashboard - Kontainr</PageTitle>
@@ -24,6 +25,26 @@
 </div>
 
 <div class="k-content">
+    @if (alerts.Count > 0)
+    {
+        <div class="k-alert-banner">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span style="font-weight: 600;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--k-red)" stroke-width="2" style="vertical-align: -3px; margin-right: 0.3rem;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    @alerts.Count Alert(s)
+                </span>
+                <button class="k-btn" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;" @onclick="DismissAllAlerts">Dismiss All</button>
+            </div>
+            @foreach (var alert in alerts)
+            {
+                <div class="k-alert-item">
+                    <span><strong>@alert.ContainerName</strong> — @alert.Message</span>
+                    <span style="font-size: 0.72rem; color: var(--k-text-muted);">@alert.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                </div>
+            }
+        </div>
+    }
+
     @if (error is not null)
     {
         <div class="k-error">@error</div>
@@ -148,6 +169,7 @@
 
     private List<ContainerViewModel> containers = [];
     private List<ContainerViewModel> favoriteContainers = [];
+    private List<ContainerAlert> alerts = [];
     private HashSet<string> favorites = [];
     private Dictionary<string, (double cpu, long memUsage, long memLimit)> stats = [];
     private int runningCount, stoppedCount, imageCount, volumeCount;
@@ -162,6 +184,12 @@
         favorites = Settings.GetFavorites();
         await LoadAsync();
         StartAutoRefresh();
+    }
+
+    private void DismissAllAlerts()
+    {
+        Events.DismissAll();
+        alerts = [];
     }
 
     private async Task LoadAsync()
@@ -192,6 +220,7 @@
                     newStats[r.Id] = ComputeStats(r.Stats);
             }
             stats = newStats;
+            alerts = Events.GetAlerts();
         }
         catch (Exception ex)
         {

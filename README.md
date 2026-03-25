@@ -19,15 +19,21 @@
 
 ### Container Management
 - **Dashboard** — overview of running/stopped containers, images, volumes with live CPU/RAM stats
+- **Crash/Restart Alerts** — automatic detection of crashed or restart-looping containers on dashboard
+- **Favorites** — pin containers to the top of the dashboard for quick access
 - **Start, Stop, Restart, Remove** — all with confirmation dialogs and toast notifications
 - **Container Creation Wizard** — pull image, configure ports, volumes, env vars, restart policy, network
+- **Container Config Editor** — edit env vars, ports, restart policy and recreate with new config
 - **One-Click Update** — pull latest image and recreate container with the same configuration
+- **Update Checker** — scan all containers for newer registry images
+- **Docker Compose Deploy** — upload or paste a `docker-compose.yml` and deploy stacks from the UI
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
 - **Health Check Badges** — healthy/unhealthy/starting indicators on containers
 
 ### Monitoring
 - **CPU/RAM Sparkline Graphs** — resource usage over time on container detail pages
 - **Live Log Streaming** — real-time `docker logs -f` with search/filter
+- **Log Export** — download container logs as a text file
 - **Auto-Refresh** — configurable 3s/5s/10s/30s polling with visual indicator
 - **Clickable Port Links** — port mappings link directly to the service, configurable host URL
 
@@ -48,7 +54,10 @@
 - **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
 - **Configurable Host URL** — port links use your NAS hostname instead of localhost
 - **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
-- **Dark Theme** — GitHub-dark inspired UI with responsive sidebar
+- **Backup & Restore** — export/import all settings as JSON
+- **Global Search** — search containers, images, volumes, and networks from any page
+- **Audit Log** — tracks all actions with timestamps
+- **Dark/Light Theme** — toggle between dark and light mode, persisted to settings
 
 ## Quick Start
 

@@ -19,6 +19,9 @@ builder.Services.AddSingleton<ToastService>();
 builder.Services.AddSingleton<SshSettingsService>();
 builder.Services.AddSingleton<SshSessionManager>();
 builder.Services.AddSingleton<StatsHistoryService>();
+builder.Services.AddSingleton<AuditService>();
+builder.Services.AddSingleton<ContainerEventService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ContainerEventService>());
 
 var app = builder.Build();
 

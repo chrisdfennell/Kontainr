@@ -847,6 +847,115 @@ html, body {
     color: var(--k-text-muted);
 }
 
+/* ── Global Search Bar ─────────────────────────────────────────── */
+
+.k-global-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.4rem 1.5rem;
+    border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface);
+}
+
+.k-global-search-wrap {
+    position: relative;
+}
+
+.k-global-search {
+    background: var(--k-bg);
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.3rem 0.75rem;
+    color: var(--k-text);
+    font-size: 0.8rem;
+    width: 260px;
+    transition: border-color 0.15s;
+}
+
+.k-global-search:focus { outline: none; border-color: var(--k-accent); }
+.k-global-search::placeholder { color: var(--k-text-muted); }
+
+.k-search-hint {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    color: var(--k-text-muted);
+    pointer-events: none;
+}
+
+.k-theme-toggle {
+    background: none;
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.35rem;
+    color: var(--k-text-muted);
+    cursor: pointer;
+    display: flex;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.k-theme-toggle:hover { color: var(--k-text); border-color: var(--k-text-muted); }
+
+/* ── Alert Banner ─────────────────────────────────────────────── */
+
+.k-alert-banner {
+    background: rgba(248, 81, 73, 0.08);
+    border: 1px solid var(--k-red);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    color: var(--k-text);
+}
+
+.k-alert-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 0;
+    font-size: 0.85rem;
+    border-top: 1px solid rgba(248, 81, 73, 0.15);
+}
+
+.k-alert-item:first-of-type { border-top: none; }
+
+/* ── Light Theme ──────────────────────────────────────────────── */
+
+[data-theme="light"], .k-light {
+    --k-bg: #f6f8fa;
+    --k-surface: #ffffff;
+    --k-surface-hover: #f0f2f5;
+    --k-border: #d0d7de;
+    --k-text: #1f2328;
+    --k-text-muted: #656d76;
+    --k-accent: #0969da;
+    --k-green: #1a7f37;
+    --k-red: #cf222e;
+    --k-yellow: #9a6700;
+    --k-orange: #bc4c00;
+    --k-purple: #8250df;
+}
+
+[data-theme="light"] .k-log-viewer,
+[data-theme="light"] .k-terminal,
+[data-theme="light"] .k-terminal-output,
+[data-theme="light"] .k-compose-editor {
+    background: #f6f8fa;
+    color: #1f2328;
+}
+
+[data-theme="light"] .k-sidebar {
+    background: #ffffff;
+    border-right-color: #d0d7de;
+}
+
+[data-theme="light"] .status-running .k-status-dot {
+    box-shadow: 0 0 4px var(--k-green);
+}
+
 /* ── Override Blazor defaults ─────────────────────────────────── */
 
 .blazor-error-boundary {

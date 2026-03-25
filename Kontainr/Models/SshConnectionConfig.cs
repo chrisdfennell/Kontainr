@@ -14,6 +14,7 @@ public class SshConnectionConfig
 public class AppSettings
 {
     public string HostUrl { get; set; } = "localhost";
+    public string Theme { get; set; } = "dark";
     public List<SshConnectionConfig> SshConnections { get; set; } = [];
     public HashSet<string> FavoriteContainerNames { get; set; } = [];
 }

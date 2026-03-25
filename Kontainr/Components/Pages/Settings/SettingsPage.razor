@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject SshSettingsService SshSettings
 @inject ToastService Toast
+@inject IJSRuntime JS
 
 <PageTitle>Settings - Kontainr</PageTitle>
 
@@ -121,6 +122,29 @@
         }
     </div>
 
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">Backup & Restore</div>
+        <div class="k-card-body">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start; flex-wrap: wrap;">
+                <div>
+                    <p style="font-size: 0.8rem; color: var(--k-text-muted); margin: 0 0 0.5rem;">Export all settings (SSH connections, favorites, host URL) to a JSON file.</p>
+                    <button class="k-btn k-btn-primary" @onclick="ExportSettings">Export Settings</button>
+                </div>
+                <div>
+                    <p style="font-size: 0.8rem; color: var(--k-text-muted); margin: 0 0 0.5rem;">Import settings from a previously exported JSON file.</p>
+                    <label class="k-btn" style="cursor: pointer;">
+                        Import Settings
+                        <InputFile OnChange="ImportSettings" style="display: none;" accept=".json" />
+                    </label>
+                    @if (importResult is not null)
+                    {
+                        <span style="font-size: 0.8rem; color: @(importSuccess ? "var(--k-green)" : "var(--k-red)"); margin-left: 0.5rem;">@importResult</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="k-card">
         <div class="k-card-header">About Authentication</div>
         <div class="k-card-body" style="font-size: 0.85rem; color: var(--k-text-muted); line-height: 1.6;">
@@ -142,6 +166,8 @@
     private string editName = "", editHost = "", editUsername = "", editPassword = "", editInitCommands = "";
     private int editPort = 22;
     private string testResult = "";
+    private string? importResult;
+    private bool importSuccess;
     private bool testSuccess;
     private bool testing;
 
@@ -244,5 +270,32 @@
             testSuccess = false;
         }
         testing = false;
+    }
+
+    private async Task ExportSettings()
+    {
+        var json = SshSettings.ExportSettings();
+        await JS.InvokeVoidAsync("kontainr.downloadText", $"kontainr-settings-{DateTime.Now:yyyyMMdd}.json", json);
+        Toast.Success("Settings exported");
+    }
+
+    private async Task ImportSettings(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 1024 * 1024));
+            var json = await reader.ReadToEndAsync();
+            SshSettings.ImportSettings(json);
+            LoadConnections();
+            hostUrl = SshSettings.GetHostUrl();
+            importResult = "Import successful!";
+            importSuccess = true;
+            Toast.Success("Settings imported");
+        }
+        catch (Exception ex)
+        {
+            importResult = $"Import failed: {ex.Message}";
+            importSuccess = false;
+        }
     }
 }
