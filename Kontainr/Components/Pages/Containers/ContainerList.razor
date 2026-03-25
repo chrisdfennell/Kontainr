@@ -1,0 +1,294 @@
+@page "/containers"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@implements IDisposable
+
+<PageTitle>Containers - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Containers</h1>
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <input class="k-search" type="text" placeholder="Search containers..." @bind="searchTerm" @bind:event="oninput" />
+        <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; color: var(--k-text-muted);">
+            <input type="checkbox" @bind="showAll" @bind:after="LoadAsync" /> Show stopped
+        </label>
+        <span class="k-auto-refresh-indicator @(autoRefresh ? "active" : "")"></span>
+        <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; color: var(--k-text-muted);">
+            <input type="checkbox" @bind="autoRefresh" @bind:after="ToggleAutoRefresh" /> Auto
+        </label>
+        <select class="k-select" @bind="refreshInterval" @bind:after="ToggleAutoRefresh" disabled="@(!autoRefresh)">
+            <option value="3">3s</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="30">30s</option>
+        </select>
+        <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading && allContainers.Count == 0)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        @if (composeGroups.Count > 0)
+        {
+            @foreach (var group in composeGroups)
+            {
+                <div class="k-card" style="margin-bottom: 1rem;">
+                    <div class="k-group-header" @onclick="() => ToggleGroup(group.Key)">
+                        <svg class="k-group-chevron @(IsCollapsed(group.Key) ? "collapsed" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="7 7 7 3 17 3 17 7"/></svg>
+                        @group.Key
+                        <span class="k-badge" style="margin-left: auto;">@group.Value.Count containers</span>
+                    </div>
+                    @if (!IsCollapsed(group.Key))
+                    {
+                        @RenderContainerTable(group.Value)
+                    }
+                </div>
+            }
+        }
+
+        @if (standaloneContainers.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                @if (composeGroups.Count > 0)
+                {
+                    <div class="k-card-header">Standalone Containers</div>
+                }
+                @RenderContainerTable(standaloneContainers)
+            </div>
+        }
+
+        @if (composeGroups.Count == 0 && standaloneContainers.Count == 0)
+        {
+            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">
+                No containers found.
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private List<ContainerViewModel> allContainers = [];
+    private Dictionary<string, List<ContainerViewModel>> composeGroups = [];
+    private List<ContainerViewModel> standaloneContainers = [];
+    private Dictionary<string, (double cpu, long memUsage, long memLimit)> stats = [];
+    private HashSet<string> collapsedGroups = [];
+    private bool loading = true;
+    private bool showAll = true;
+    private string searchTerm = "";
+    private string? error;
+    private string? actionInProgress;
+    private bool autoRefresh = true;
+    private int refreshInterval = 5;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        StartAutoRefresh();
+    }
+
+    private IEnumerable<ContainerViewModel> Filtered =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? allContainers
+            : allContainers.Where(c =>
+                c.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                c.Image.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (c.ComposeProject?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            var raw = await Docker.GetContainersAsync(showAll);
+            allContainers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            RebuildGroups();
+
+            // Fetch stats for running containers
+            var running = allContainers.Where(c => c.IsRunning).ToList();
+            var statsTasks = running.Select(async c =>
+            {
+                var s = await Docker.GetContainerStatsOnceAsync(c.Id);
+                return (c.Id, Stats: s);
+            });
+            var results = await Task.WhenAll(statsTasks);
+            var newStats = new Dictionary<string, (double cpu, long memUsage, long memLimit)>();
+            foreach (var r in results)
+            {
+                if (r.Stats is not null)
+                {
+                    double cpu = 0;
+                    var cpuDelta = (double)(r.Stats.CPUStats.CPUUsage.TotalUsage - r.Stats.PreCPUStats.CPUUsage.TotalUsage);
+                    var sysDelta = (double)(r.Stats.CPUStats.SystemUsage - r.Stats.PreCPUStats.SystemUsage);
+                    var cpuCount = r.Stats.CPUStats.OnlineCPUs > 0 ? r.Stats.CPUStats.OnlineCPUs : (ulong)(r.Stats.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1);
+                    if (sysDelta > 0 && cpuDelta >= 0)
+                        cpu = (cpuDelta / sysDelta) * cpuCount * 100.0;
+                    newStats[r.Id] = (cpu, (long)r.Stats.MemoryStats.Usage, (long)r.Stats.MemoryStats.Limit);
+                }
+            }
+            stats = newStats;
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private void RebuildGroups()
+    {
+        var filtered = Filtered.ToList();
+        composeGroups = filtered
+            .Where(c => c.ComposeProject is not null)
+            .GroupBy(c => c.ComposeProject!)
+            .OrderBy(g => g.Key)
+            .ToDictionary(g => g.Key, g => g.OrderBy(c => c.Name).ToList());
+        standaloneContainers = filtered
+            .Where(c => c.ComposeProject is null)
+            .OrderBy(c => c.Name)
+            .ToList();
+    }
+
+    private void StartAutoRefresh()
+    {
+        refreshTimer?.Dispose();
+        if (autoRefresh)
+        {
+            refreshTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }, null, TimeSpan.FromSeconds(refreshInterval), TimeSpan.FromSeconds(refreshInterval));
+        }
+    }
+
+    private void ToggleAutoRefresh() => StartAutoRefresh();
+
+    private void ToggleGroup(string key)
+    {
+        if (!collapsedGroups.Remove(key))
+            collapsedGroups.Add(key);
+    }
+
+    private bool IsCollapsed(string key) => collapsedGroups.Contains(key);
+
+    private string GetCpu(string id) =>
+        stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
+
+    private string GetMemory(string id) =>
+        stats.TryGetValue(id, out var s)
+            ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}"
+            : "...";
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+
+    private async Task StartContainer(string id)
+    {
+        actionInProgress = id;
+        await Docker.StartContainerAsync(id);
+        await LoadAsync();
+        actionInProgress = null;
+    }
+
+    private async Task StopContainer(string id)
+    {
+        actionInProgress = id;
+        await Docker.StopContainerAsync(id);
+        await LoadAsync();
+        actionInProgress = null;
+    }
+
+    private async Task RestartContainer(string id)
+    {
+        actionInProgress = id;
+        await Docker.RestartContainerAsync(id);
+        await LoadAsync();
+        actionInProgress = null;
+    }
+
+    private void NavigateToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
+
+    private RenderFragment RenderContainerTable(List<ContainerViewModel> items) => __builder =>
+    {
+        <table class="k-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Image</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Ports</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in items)
+                {
+                    <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
+                        <td>
+                            <strong>@c.Name</strong>
+                            @if (c.ComposeService is not null)
+                            {
+                                <br /><span style="font-size: 0.75rem; color: var(--k-text-muted);">service: @c.ComposeService</span>
+                            }
+                        </td>
+                        <td class="k-mono">@c.Image</td>
+                        <td>
+                            <span class="k-status @c.StateClass">
+                                <span class="k-status-dot"></span>
+                                @c.Status
+                            </span>
+                        </td>
+                        <td class="k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
+                        <td class="k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
+                        <td class="k-mono">@c.PortDisplay</td>
+                        <td style="text-align: right;" @onclick:stopPropagation="true">
+                            <div class="k-btn-group">
+                                @if (c.IsRunning)
+                                {
+                                    <button class="k-btn" @onclick="() => StopContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Stop">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                                    </button>
+                                    <button class="k-btn" @onclick="() => RestartContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Restart">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="k-btn k-btn-success" @onclick="() => StartContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Start">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                    </button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    };
+
+    public void Dispose() => refreshTimer?.Dispose();
+}

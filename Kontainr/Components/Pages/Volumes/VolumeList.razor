@@ -1,0 +1,102 @@
+@page "/volumes"
+@rendermode InteractiveServer
+@inject DockerService Docker
+
+<PageTitle>Volumes - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Volumes</h1>
+    <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        <div class="k-card">
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Driver</th>
+                        <th>Mount Point</th>
+                        <th>Created</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var vol in volumes)
+                    {
+                        <tr>
+                            <td><strong>@TruncateName(vol.Name)</strong></td>
+                            <td><span class="k-badge">@vol.Driver</span></td>
+                            <td class="k-mono" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis;">@vol.Mountpoint</td>
+                            <td>@(string.IsNullOrEmpty(vol.CreatedAt) ? "-" : vol.CreatedAt)</td>
+                            <td style="text-align: right;">
+                                <button class="k-btn k-btn-danger" @onclick="() => RemoveVolume(vol.Name)" disabled="@(removing == vol.Name)" title="Remove">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (volumes.Count == 0)
+        {
+            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No volumes found.</div>
+        }
+    }
+</div>
+
+@code {
+    private IList<Docker.DotNet.Models.VolumeResponse> volumes = [];
+    private bool loading = true;
+    private string? error;
+    private string? removing;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            var response = await Docker.GetVolumesAsync();
+            volumes = response.Volumes ?? [];
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private async Task RemoveVolume(string name)
+    {
+        removing = name;
+        try
+        {
+            await Docker.RemoveVolumeAsync(name);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to remove volume: {ex.Message}";
+        }
+        removing = null;
+    }
+
+    private static string TruncateName(string name) =>
+        name.Length > 30 ? name[..12] + "..." + name[^8..] : name;
+}

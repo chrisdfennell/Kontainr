@@ -1,0 +1,532 @@
+@page "/containers/{ContainerId}"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Container - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/containers" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>@(container?.Name ?? "Container")</h1>
+    </div>
+    @if (container is not null)
+    {
+        <div class="k-btn-group">
+            @if (inspect?.State?.Running == true)
+            {
+                <button class="k-btn" @onclick="Stop" disabled="@acting">Stop</button>
+                <button class="k-btn" @onclick="Restart" disabled="@acting">Restart</button>
+            }
+            else
+            {
+                <button class="k-btn k-btn-success" @onclick="Start" disabled="@acting">Start</button>
+                <button class="k-btn k-btn-danger" @onclick="Remove" disabled="@acting">Remove</button>
+            }
+        </div>
+    }
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else if (inspect is not null)
+    {
+        <div class="k-tabs">
+            <button class="k-tab @(activeTab == "overview" ? "active" : "")" @onclick="SetTabOverview">Overview</button>
+            <button class="k-tab @(activeTab == "logs" ? "active" : "")" @onclick="SelectLogs">Logs</button>
+            <button class="k-tab @(activeTab == "terminal" ? "active" : "")" @onclick="SetTabTerminal">Terminal</button>
+            <button class="k-tab @(activeTab == "inspect" ? "active" : "")" @onclick="SetTabInspect">Inspect</button>
+            <button class="k-tab @(activeTab == "env" ? "active" : "")" @onclick="SetTabEnv">Environment</button>
+        </div>
+
+        @if (activeTab == "overview")
+        {
+            <div class="k-stat-grid">
+                <div class="k-stat-card">
+                    <div class="k-stat-label">State</div>
+                    <div class="k-stat-value @(inspect.State?.Running == true ? "green" : "red")">
+                        @(inspect.State?.Status ?? "unknown")
+                    </div>
+                </div>
+                @if (cpuPercent.HasValue)
+                {
+                    <div class="k-stat-card">
+                        <div class="k-stat-label">CPU</div>
+                        <div class="k-stat-value blue">@($"{cpuPercent:F1}%")</div>
+                    </div>
+                }
+                @if (memUsage.HasValue)
+                {
+                    <div class="k-stat-card">
+                        <div class="k-stat-label">Memory</div>
+                        <div class="k-stat-value" style="font-size: 1.1rem;">@FormatBytes(memUsage.Value) / @FormatBytes(memLimit!.Value)</div>
+                    </div>
+                }
+                <div class="k-stat-card">
+                    <div class="k-stat-label">Created</div>
+                    <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Created.ToLocalTime().ToString("g")</div>
+                </div>
+                <div class="k-stat-card">
+                    <div class="k-stat-label">Restart Count</div>
+                    <div class="k-stat-value">@(inspect.RestartCount)</div>
+                </div>
+                <div class="k-stat-card">
+                    <div class="k-stat-label">Platform</div>
+                    <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Platform</div>
+                </div>
+            </div>
+
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Details</div>
+                <div class="k-card-body">
+                    <div class="k-detail-grid">
+                        <div class="k-detail-key">ID</div>
+                        <div class="k-detail-value k-mono">@inspect.ID</div>
+
+                        <div class="k-detail-key">Image</div>
+                        <div class="k-detail-value k-mono">@inspect.Config.Image</div>
+
+                        <div class="k-detail-key">Command</div>
+                        <div class="k-detail-value k-mono">@string.Join(" ", inspect.Config.Cmd ?? [])</div>
+
+                        <div class="k-detail-key">Working Dir</div>
+                        <div class="k-detail-value k-mono">@(string.IsNullOrEmpty(inspect.Config.WorkingDir) ? "/" : inspect.Config.WorkingDir)</div>
+
+                        @if (inspect.Config.Labels?.TryGetValue("com.docker.compose.project", out var proj) == true)
+                        {
+                            <div class="k-detail-key">Compose Project</div>
+                            <div class="k-detail-value">@proj</div>
+                        }
+
+                        @if (inspect.Config.Labels?.TryGetValue("com.docker.compose.service", out var svc) == true)
+                        {
+                            <div class="k-detail-key">Compose Service</div>
+                            <div class="k-detail-value">@svc</div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (inspect.NetworkSettings?.Networks?.Count > 0)
+            {
+                <div class="k-card" style="margin-bottom: 1rem;">
+                    <div class="k-card-header">Networks</div>
+                    <table class="k-table">
+                        <thead>
+                            <tr>
+                                <th>Network</th>
+                                <th>IP Address</th>
+                                <th>Gateway</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var net in inspect.NetworkSettings.Networks)
+                            {
+                                <tr>
+                                    <td>@net.Key</td>
+                                    <td class="k-mono">@net.Value.IPAddress</td>
+                                    <td class="k-mono">@net.Value.Gateway</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (inspect.Mounts?.Count > 0)
+            {
+                <div class="k-card">
+                    <div class="k-card-header">Mounts</div>
+                    <table class="k-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Source</th>
+                                <th>Destination</th>
+                                <th>RW</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var m in inspect.Mounts)
+                            {
+                                <tr>
+                                    <td>@m.Type</td>
+                                    <td class="k-mono" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">@m.Source</td>
+                                    <td class="k-mono">@m.Destination</td>
+                                    <td>@(m.RW ? "Yes" : "No")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+
+        @if (activeTab == "logs")
+        {
+            <div class="k-card">
+                <div class="k-card-header">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        Container Logs
+                        @if (logStreaming)
+                        {
+                            <span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">Live</span>
+                        }
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input class="k-search" style="width: 200px;" type="text" placeholder="Filter logs..."
+                               @bind="logFilter" @bind:event="oninput" />
+                        @if (logStreaming)
+                        {
+                            <button class="k-btn k-btn-danger" @onclick="StopLogStream">Stop</button>
+                        }
+                        else
+                        {
+                            <button class="k-btn k-btn-success" @onclick="StartLogStream">Follow</button>
+                            <button class="k-btn" @onclick="LoadLogs">Refresh</button>
+                        }
+                    </div>
+                </div>
+                <div class="k-log-viewer" id="log-viewer">@((MarkupString)FilteredLogs)</div>
+            </div>
+        }
+
+        @if (activeTab == "terminal")
+        {
+            <div class="k-card">
+                <div class="k-card-header">
+                    Terminal
+                    <span style="font-size: 0.75rem; color: var(--k-text-muted);">exec into container via /bin/sh</span>
+                </div>
+                <div class="k-terminal">
+                    <div class="k-terminal-output" id="terminal-output">@((MarkupString)terminalOutput)</div>
+                    <div class="k-terminal-input-row">
+                        <span class="k-terminal-prompt">$</span>
+                        <input id="terminal-input" class="k-terminal-input" type="text" placeholder="Type a command..."
+                               @bind="terminalCommand" @bind:event="oninput"
+                               @onkeydown="HandleTerminalKey" disabled="@terminalBusy" />
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "inspect")
+        {
+            <div class="k-card">
+                <div class="k-card-header">Raw Inspect</div>
+                <div class="k-log-viewer">@inspectJson</div>
+            </div>
+        }
+
+        @if (activeTab == "env")
+        {
+            <div class="k-card">
+                <div class="k-card-header">Environment Variables</div>
+                <table class="k-table">
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var env in (inspect.Config.Env ?? []))
+                        {
+                            var parts = env.Split('=', 2);
+                            <tr>
+                                <td class="k-mono" style="font-weight: 600;">@parts[0]</td>
+                                <td class="k-mono">@(parts.Length > 1 ? parts[1] : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "";
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private ContainerViewModel? container;
+    private Docker.DotNet.Models.ContainerInspectResponse? inspect;
+    private string activeTab = "overview";
+    private bool loading = true;
+    private bool acting;
+    private string? error;
+    private string logContent = "";
+    private string logFilter = "";
+    private string inspectJson = "";
+    private double? cpuPercent;
+    private long? memUsage;
+    private long? memLimit;
+
+    // Log streaming
+    private bool logStreaming;
+    private CancellationTokenSource? logStreamCts;
+    private System.Text.StringBuilder logBuffer = new();
+
+    // Terminal
+    private string terminalCommand = "";
+    private string terminalOutput = "";
+    private bool terminalBusy;
+    private List<string> commandHistory = [];
+    private int historyIndex = -1;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            inspect = await Docker.InspectContainerAsync(ContainerId);
+            container = new ContainerViewModel
+            {
+                Id = inspect.ID,
+                Name = inspect.Name.TrimStart('/'),
+                Image = inspect.Config.Image,
+                State = inspect.State.Status
+            };
+            inspectJson = System.Text.Json.JsonSerializer.Serialize(inspect, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+            // Fetch stats if running
+            if (inspect.State?.Running == true)
+            {
+                var stats = await Docker.GetContainerStatsOnceAsync(ContainerId);
+                if (stats is not null)
+                {
+                    var cpuDelta = (double)(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage);
+                    var sysDelta = (double)(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage);
+                    var cpuCount = stats.CPUStats.OnlineCPUs > 0 ? stats.CPUStats.OnlineCPUs : (ulong)(stats.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1);
+                    cpuPercent = sysDelta > 0 ? (cpuDelta / sysDelta) * cpuCount * 100.0 : 0;
+                    memUsage = (long)stats.MemoryStats.Usage;
+                    memLimit = (long)stats.MemoryStats.Limit;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to load container: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    // ── Logs ─────────────────────────────────────────────────────
+
+    private string FilteredLogs
+    {
+        get
+        {
+            var source = logStreaming ? logBuffer.ToString() : logContent;
+            if (string.IsNullOrWhiteSpace(logFilter))
+                return System.Web.HttpUtility.HtmlEncode(source);
+
+            var lines = source.Split('\n');
+            var filtered = lines.Where(l => l.Contains(logFilter, StringComparison.OrdinalIgnoreCase));
+            return System.Web.HttpUtility.HtmlEncode(string.Join('\n', filtered));
+        }
+    }
+
+    private async Task SelectLogs()
+    {
+        activeTab = "logs";
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        try
+        {
+            logContent = "Loading logs...";
+            var raw = await Docker.GetContainerLogsAsync(ContainerId, 500);
+            logContent = CleanLogOutput(raw);
+        }
+        catch (Exception ex)
+        {
+            logContent = $"Error fetching logs: {ex.Message}";
+        }
+    }
+
+    private async Task StartLogStream()
+    {
+        StopLogStreamInternal();
+        logStreaming = true;
+        logStreamCts = new CancellationTokenSource();
+        logBuffer.Clear();
+        var ct = logStreamCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Docker.StreamContainerLogsAsync(ContainerId, 100, line =>
+                {
+                    logBuffer.AppendLine(line);
+                    // Trim buffer if too large (keep last 5000 lines)
+                    if (logBuffer.Length > 500_000)
+                    {
+                        var text = logBuffer.ToString();
+                        var lines = text.Split('\n');
+                        var trimmed = string.Join('\n', lines.TakeLast(5000));
+                        logBuffer.Clear();
+                        logBuffer.Append(trimmed);
+                    }
+                    _ = InvokeAsync(() =>
+                    {
+                        StateHasChanged();
+                        _ = JS.InvokeVoidAsync("kontainr.scrollToBottom", "log-viewer");
+                    });
+                }, ct);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                logBuffer.AppendLine($"\n--- Stream error: {ex.Message} ---");
+                await InvokeAsync(StateHasChanged);
+            }
+        });
+    }
+
+    private void StopLogStream()
+    {
+        StopLogStreamInternal();
+        logContent = logBuffer.ToString();
+        logStreaming = false;
+    }
+
+    private void StopLogStreamInternal()
+    {
+        logStreamCts?.Cancel();
+        logStreamCts?.Dispose();
+        logStreamCts = null;
+    }
+
+    // ── Terminal ─────────────────────────────────────────────────
+
+    private void SetTabTerminal()
+    {
+        activeTab = "terminal";
+        _ = JS.InvokeVoidAsync("kontainr.focusElement", "terminal-input");
+    }
+
+    private async Task HandleTerminalKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(terminalCommand))
+        {
+            await ExecuteCommand();
+        }
+        else if (e.Key == "ArrowUp" && commandHistory.Count > 0)
+        {
+            historyIndex = Math.Min(historyIndex + 1, commandHistory.Count - 1);
+            terminalCommand = commandHistory[commandHistory.Count - 1 - historyIndex];
+        }
+        else if (e.Key == "ArrowDown")
+        {
+            historyIndex = Math.Max(historyIndex - 1, -1);
+            terminalCommand = historyIndex >= 0 ? commandHistory[commandHistory.Count - 1 - historyIndex] : "";
+        }
+    }
+
+    private async Task ExecuteCommand()
+    {
+        var cmd = terminalCommand.Trim();
+        terminalCommand = "";
+        historyIndex = -1;
+        commandHistory.Add(cmd);
+        terminalBusy = true;
+
+        terminalOutput += $"<span class=\"term-prompt\">$ {System.Web.HttpUtility.HtmlEncode(cmd)}</span>\n";
+
+        try
+        {
+            var result = await Docker.ExecContainerAsync(ContainerId, cmd);
+            if (!string.IsNullOrEmpty(result))
+                terminalOutput += System.Web.HttpUtility.HtmlEncode(result.TrimEnd()) + "\n";
+        }
+        catch (Exception ex)
+        {
+            terminalOutput += $"<span class=\"term-error\">Error: {System.Web.HttpUtility.HtmlEncode(ex.Message)}</span>\n";
+        }
+
+        terminalBusy = false;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("kontainr.scrollToBottom", "terminal-output");
+    }
+
+    // ── Actions ──────────────────────────────────────────────────
+
+    private static string CleanLogOutput(string raw)
+    {
+        var lines = raw.Split('\n');
+        var cleaned = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var output = line.Length > 8 && line[0] <= 2 ? line[8..] : line;
+            cleaned.AppendLine(output.TrimEnd());
+        }
+        return cleaned.ToString();
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+
+    private async Task Start()
+    {
+        acting = true;
+        await Docker.StartContainerAsync(ContainerId);
+        await LoadAsync();
+        acting = false;
+    }
+
+    private async Task Stop()
+    {
+        acting = true;
+        await Docker.StopContainerAsync(ContainerId);
+        await LoadAsync();
+        acting = false;
+    }
+
+    private async Task Restart()
+    {
+        acting = true;
+        await Docker.RestartContainerAsync(ContainerId);
+        await LoadAsync();
+        acting = false;
+    }
+
+    private async Task Remove()
+    {
+        acting = true;
+        await Docker.RemoveContainerAsync(ContainerId, force: true);
+        Nav.NavigateTo("/containers");
+    }
+
+    private void SetTabOverview() => activeTab = "overview";
+    private void SetTabInspect() => activeTab = "inspect";
+    private void SetTabEnv() => activeTab = "env";
+
+    public void Dispose()
+    {
+        StopLogStreamInternal();
+    }
+}

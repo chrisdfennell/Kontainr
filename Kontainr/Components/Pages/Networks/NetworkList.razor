@@ -1,0 +1,114 @@
+@page "/networks"
+@rendermode InteractiveServer
+@inject DockerService Docker
+
+<PageTitle>Networks - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Networks</h1>
+    <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        <div class="k-card">
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>ID</th>
+                        <th>Driver</th>
+                        <th>Scope</th>
+                        <th>Subnet</th>
+                        <th>Containers</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var net in networks)
+                    {
+                        var subnet = net.IPAM?.Config?.FirstOrDefault()?.Subnet ?? "-";
+                        var containerCount = net.Containers?.Count ?? 0;
+                        var isBuiltIn = net.Name is "bridge" or "host" or "none";
+                        <tr>
+                            <td>
+                                <strong>@net.Name</strong>
+                                @if (isBuiltIn)
+                                {
+                                    <span class="k-badge" style="margin-left: 0.5rem; background: rgba(139,148,158,0.15); color: var(--k-text-muted);">built-in</span>
+                                }
+                            </td>
+                            <td class="k-mono">@net.ID[..12]</td>
+                            <td><span class="k-badge">@net.Driver</span></td>
+                            <td>@net.Scope</td>
+                            <td class="k-mono">@subnet</td>
+                            <td>@containerCount</td>
+                            <td style="text-align: right;">
+                                @if (!isBuiltIn)
+                                {
+                                    <button class="k-btn k-btn-danger" @onclick="() => RemoveNetwork(net.ID)" disabled="@(removing == net.ID)" title="Remove">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (networks.Count == 0)
+        {
+            <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">No networks found.</div>
+        }
+    }
+</div>
+
+@code {
+    private IList<Docker.DotNet.Models.NetworkResponse> networks = [];
+    private bool loading = true;
+    private string? error;
+    private string? removing;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            networks = await Docker.GetNetworksAsync();
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private async Task RemoveNetwork(string id)
+    {
+        removing = id;
+        try
+        {
+            await Docker.RemoveNetworkAsync(id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to remove network: {ex.Message}";
+        }
+        removing = null;
+    }
+}

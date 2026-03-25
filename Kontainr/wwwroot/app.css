@@ -1,0 +1,653 @@
+/* ── Kontainr Dark Dashboard Theme ─────────────────────────────── */
+
+:root {
+    --k-bg: #0d1117;
+    --k-surface: #161b22;
+    --k-surface-hover: #1c2333;
+    --k-border: #30363d;
+    --k-text: #e6edf3;
+    --k-text-muted: #8b949e;
+    --k-accent: #58a6ff;
+    --k-green: #3fb950;
+    --k-red: #f85149;
+    --k-yellow: #d29922;
+    --k-orange: #db6d28;
+    --k-purple: #bc8cff;
+    --k-sidebar-width: 240px;
+}
+
+html, body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--k-bg);
+    color: var(--k-text);
+    margin: 0;
+    min-height: 100vh;
+}
+
+/* ── Layout ───────────────────────────────────────────────────── */
+
+.k-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.k-sidebar {
+    width: var(--k-sidebar-width);
+    background: var(--k-surface);
+    border-right: 1px solid var(--k-border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    overflow-y: auto;
+}
+
+.k-sidebar-brand {
+    padding: 1.25rem 1rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--k-text);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--k-border);
+}
+
+.k-sidebar-brand svg {
+    width: 28px;
+    height: 28px;
+    color: var(--k-accent);
+}
+
+.k-nav {
+    list-style: none;
+    padding: 0.5rem 0;
+    margin: 0;
+}
+
+.k-nav-item {
+    margin: 2px 8px;
+}
+
+.k-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    color: var(--k-text-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: background 0.15s, color 0.15s;
+}
+
+.k-nav-link:hover {
+    background: var(--k-surface-hover);
+    color: var(--k-text);
+}
+
+.k-nav-link.active {
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--k-accent);
+}
+
+.k-nav-link svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.k-nav-section {
+    padding: 0.75rem 1rem 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--k-text-muted);
+}
+
+.k-main {
+    margin-left: var(--k-sidebar-width);
+    flex: 1;
+    min-width: 0;
+}
+
+.k-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.k-topbar h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.k-content {
+    padding: 1.5rem;
+}
+
+/* ── Cards & Panels ───────────────────────────────────────────── */
+
+.k-card {
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.k-card-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--k-border);
+    font-weight: 600;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.k-card-body {
+    padding: 1rem;
+}
+
+/* ── Tables ───────────────────────────────────────────────────── */
+
+.k-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.k-table th {
+    padding: 0.6rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--k-text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--k-border);
+    white-space: nowrap;
+}
+
+.k-table td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--k-border);
+    vertical-align: middle;
+}
+
+.k-table tbody tr:hover {
+    background: var(--k-surface-hover);
+}
+
+.k-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ── Status Indicators ────────────────────────────────────────── */
+
+.k-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.k-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-running .k-status-dot { background: var(--k-green); box-shadow: 0 0 6px var(--k-green); }
+.status-exited .k-status-dot { background: var(--k-red); }
+.status-paused .k-status-dot { background: var(--k-yellow); }
+.status-restarting .k-status-dot { background: var(--k-orange); }
+.status-created .k-status-dot { background: var(--k-text-muted); }
+.status-unknown .k-status-dot { background: var(--k-text-muted); }
+
+.status-running { color: var(--k-green); }
+.status-exited { color: var(--k-red); }
+.status-paused { color: var(--k-yellow); }
+.status-restarting { color: var(--k-orange); }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+
+.k-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--k-border);
+    background: var(--k-surface);
+    color: var(--k-text);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.k-btn:hover {
+    background: var(--k-surface-hover);
+    border-color: var(--k-text-muted);
+}
+
+.k-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.k-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.k-btn-primary {
+    background: var(--k-accent);
+    border-color: var(--k-accent);
+    color: #fff;
+}
+
+.k-btn-primary:hover {
+    background: #4c9aed;
+}
+
+.k-btn-danger {
+    border-color: var(--k-red);
+    color: var(--k-red);
+}
+
+.k-btn-danger:hover {
+    background: rgba(248, 81, 73, 0.15);
+}
+
+.k-btn-success {
+    border-color: var(--k-green);
+    color: var(--k-green);
+}
+
+.k-btn-success:hover {
+    background: rgba(63, 185, 80, 0.15);
+}
+
+.k-btn-group {
+    display: flex;
+    gap: 0.35rem;
+}
+
+/* ── Log Viewer ───────────────────────────────────────────────── */
+
+.k-log-viewer {
+    background: #010409;
+    color: #c9d1d9;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    padding: 1rem;
+    overflow: auto;
+    max-height: 600px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border-radius: 0 0 8px 8px;
+}
+
+.k-log-viewer .log-timestamp {
+    color: var(--k-text-muted);
+    margin-right: 0.5rem;
+}
+
+.k-log-viewer .log-stderr {
+    color: var(--k-red);
+}
+
+/* ── Stats / Badges ───────────────────────────────────────────── */
+
+.k-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.k-stat-card {
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+}
+
+.k-stat-label {
+    font-size: 0.75rem;
+    color: var(--k-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.25rem;
+}
+
+.k-stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.k-stat-value.green { color: var(--k-green); }
+.k-stat-value.red { color: var(--k-red); }
+.k-stat-value.yellow { color: var(--k-yellow); }
+.k-stat-value.blue { color: var(--k-accent); }
+
+.k-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    background: rgba(88, 166, 255, 0.12);
+    color: var(--k-accent);
+}
+
+/* ── Detail key-value pairs ───────────────────────────────────── */
+
+.k-detail-grid {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 0.4rem 1rem;
+    font-size: 0.875rem;
+}
+
+.k-detail-key {
+    color: var(--k-text-muted);
+    font-weight: 500;
+}
+
+.k-detail-value {
+    word-break: break-all;
+}
+
+/* ── Container row clickable ──────────────────────────────────── */
+
+.k-clickable {
+    cursor: pointer;
+}
+
+.k-mono {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.8rem;
+}
+
+/* ── Compose project group ────────────────────────────────────── */
+
+.k-group-header {
+    padding: 0.5rem 1rem;
+    background: rgba(88, 166, 255, 0.06);
+    border-bottom: 1px solid var(--k-border);
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--k-accent);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.k-group-header:hover {
+    background: rgba(88, 166, 255, 0.1);
+}
+
+.k-group-chevron {
+    transition: transform 0.2s;
+}
+
+.k-group-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────── */
+
+.k-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--k-border);
+    margin-bottom: 1rem;
+}
+
+.k-tab {
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    color: var(--k-text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+}
+
+.k-tab:hover {
+    color: var(--k-text);
+}
+
+.k-tab.active {
+    color: var(--k-accent);
+    border-bottom-color: var(--k-accent);
+}
+
+/* ── Search ───────────────────────────────────────────────────── */
+
+.k-search {
+    background: var(--k-bg);
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.4rem 0.75rem;
+    color: var(--k-text);
+    font-size: 0.85rem;
+    width: 280px;
+    transition: border-color 0.15s;
+}
+
+.k-search:focus {
+    outline: none;
+    border-color: var(--k-accent);
+}
+
+.k-search::placeholder {
+    color: var(--k-text-muted);
+}
+
+/* ── Loading spinner ──────────────────────────────────────────── */
+
+.k-spinner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--k-text-muted);
+}
+
+.k-spinner::after {
+    content: '';
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--k-border);
+    border-top-color: var(--k-accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-right: 0.75rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Error banner ─────────────────────────────────────────────── */
+
+.k-error {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid var(--k-red);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    color: var(--k-red);
+    margin-bottom: 1rem;
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .k-sidebar {
+        width: 60px;
+    }
+    .k-sidebar-brand span,
+    .k-nav-link span,
+    .k-nav-section {
+        display: none;
+    }
+    .k-main {
+        margin-left: 60px;
+    }
+    .k-nav-link {
+        justify-content: center;
+        padding: 0.6rem;
+    }
+}
+
+/* ── Terminal ──────────────────────────────────────────────────── */
+
+.k-terminal {
+    background: #010409;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.8rem;
+    border-radius: 0 0 8px 8px;
+}
+
+.k-terminal-output {
+    padding: 1rem;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
+    color: #c9d1d9;
+}
+
+.k-terminal-output .term-prompt {
+    color: var(--k-green);
+    font-weight: 600;
+}
+
+.k-terminal-output .term-error {
+    color: var(--k-red);
+}
+
+.k-terminal-input-row {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--k-border);
+    background: rgba(255,255,255,0.02);
+}
+
+.k-terminal-prompt {
+    color: var(--k-green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.k-terminal-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--k-text);
+    font-family: inherit;
+    font-size: inherit;
+    outline: none;
+}
+
+.k-terminal-input::placeholder {
+    color: var(--k-text-muted);
+}
+
+/* ── Auto-refresh indicator ───────────────────────────────────── */
+
+.k-auto-refresh-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--k-text-muted);
+    flex-shrink: 0;
+}
+
+.k-auto-refresh-indicator.active {
+    background: var(--k-green);
+    box-shadow: 0 0 6px var(--k-green);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ── Select dropdown ──────────────────────────────────────────── */
+
+.k-select {
+    background: var(--k-bg);
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.3rem 0.5rem;
+    color: var(--k-text);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.k-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Pull status ──────────────────────────────────────────────── */
+
+.k-pull-status {
+    margin-top: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--k-bg);
+    border-radius: 6px;
+    font-family: 'Cascadia Code', monospace;
+    font-size: 0.78rem;
+    color: var(--k-text-muted);
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+/* ── Override Blazor defaults ─────────────────────────────────── */
+
+.blazor-error-boundary {
+    background: var(--k-red);
+    padding: 1rem;
+    color: white;
+    border-radius: 8px;
+}
+
+#blazor-error-ui {
+    background: var(--k-red);
+    color: white;
+    padding: 0.5rem 1rem;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    z-index: 1000;
+    display: none;
+}

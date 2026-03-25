@@ -1,0 +1,196 @@
+@page "/"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@implements IDisposable
+
+<PageTitle>Dashboard - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Dashboard</h1>
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <span class="k-auto-refresh-indicator @(autoRefresh ? "active" : "")"></span>
+        <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; color: var(--k-text-muted);">
+            <input type="checkbox" @bind="autoRefresh" @bind:after="ToggleAutoRefresh" /> Auto-refresh
+        </label>
+        <select class="k-select" @bind="refreshInterval" @bind:after="ToggleAutoRefresh" disabled="@(!autoRefresh)">
+            <option value="3">3s</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="30">30s</option>
+        </select>
+        <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading && containers.Count == 0)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else
+    {
+        <div class="k-stat-grid">
+            <div class="k-stat-card">
+                <div class="k-stat-label">Running</div>
+                <div class="k-stat-value green">@runningCount</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Stopped</div>
+                <div class="k-stat-value red">@stoppedCount</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Images</div>
+                <div class="k-stat-value blue">@imageCount</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Volumes</div>
+                <div class="k-stat-value yellow">@volumeCount</div>
+            </div>
+        </div>
+
+        @if (containers.Count > 0)
+        {
+            <div class="k-card">
+                <div class="k-card-header">Containers</div>
+                <table class="k-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Image</th>
+                            <th>Status</th>
+                            <th>CPU</th>
+                            <th>Memory</th>
+                            <th>Ports</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in containers)
+                        {
+                            <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
+                                <td>@c.Name</td>
+                                <td class="k-mono">@c.Image</td>
+                                <td>
+                                    <span class="k-status @c.StateClass">
+                                        <span class="k-status-dot"></span>
+                                        @c.Status
+                                    </span>
+                                </td>
+                                <td class="k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
+                                <td class="k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
+                                <td class="k-mono">@c.PortDisplay</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private List<ContainerViewModel> containers = [];
+    private Dictionary<string, (double cpu, long memUsage, long memLimit)> stats = [];
+    private int runningCount, stoppedCount, imageCount, volumeCount;
+    private bool loading = true;
+    private string? error;
+    private bool autoRefresh = true;
+    private int refreshInterval = 5;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        StartAutoRefresh();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            var rawContainers = await Docker.GetContainersAsync();
+            containers = rawContainers.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            runningCount = containers.Count(c => c.IsRunning);
+            stoppedCount = containers.Count(c => c.IsExited);
+            imageCount = (await Docker.GetImagesAsync()).Count;
+            volumeCount = (await Docker.GetVolumesAsync()).Volumes?.Count ?? 0;
+
+            // Fetch stats for running containers in parallel
+            var running = containers.Where(c => c.IsRunning).ToList();
+            var statsTasks = running.Select(async c =>
+            {
+                var s = await Docker.GetContainerStatsOnceAsync(c.Id);
+                return (c.Id, Stats: s);
+            });
+            var results = await Task.WhenAll(statsTasks);
+            var newStats = new Dictionary<string, (double cpu, long memUsage, long memLimit)>();
+            foreach (var r in results)
+            {
+                if (r.Stats is not null)
+                    newStats[r.Id] = ComputeStats(r.Stats);
+            }
+            stats = newStats;
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private static (double cpu, long memUsage, long memLimit) ComputeStats(Docker.DotNet.Models.ContainerStatsResponse s)
+    {
+        double cpu = 0;
+        var cpuDelta = (double)(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage);
+        var sysDelta = (double)(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage);
+        var cpuCount = s.CPUStats.OnlineCPUs > 0 ? s.CPUStats.OnlineCPUs : (ulong)(s.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1);
+        if (sysDelta > 0 && cpuDelta >= 0)
+            cpu = (cpuDelta / sysDelta) * cpuCount * 100.0;
+        return (cpu, (long)s.MemoryStats.Usage, (long)s.MemoryStats.Limit);
+    }
+
+    private string GetCpu(string id) =>
+        stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
+
+    private string GetMemory(string id) =>
+        stats.TryGetValue(id, out var s)
+            ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}"
+            : "...";
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+
+    private void StartAutoRefresh()
+    {
+        refreshTimer?.Dispose();
+        if (autoRefresh)
+        {
+            refreshTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }, null, TimeSpan.FromSeconds(refreshInterval), TimeSpan.FromSeconds(refreshInterval));
+        }
+    }
+
+    private void ToggleAutoRefresh() => StartAutoRefresh();
+
+    private void NavigateToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
+
+    public void Dispose() => refreshTimer?.Dispose();
+}
