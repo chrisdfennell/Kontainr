@@ -29,8 +29,8 @@
     @* ── Config dialog before deploy ── *@
     @if (selectedTemplate is not null)
     {
-        <div class="k-modal-overlay" @onclick="CancelConfig">
-            <div class="k-modal" style="width: 550px;" @onclick:stopPropagation="true">
+        <div class="k-modal-overlay">
+            <div class="k-modal" style="width: 550px;">
                 <div class="k-modal-header">Deploy @selectedTemplate.Name</div>
                 <div class="k-modal-body">
                     <div style="margin-bottom: 0.75rem;">
