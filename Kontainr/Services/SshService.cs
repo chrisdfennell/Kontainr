@@ -109,6 +109,33 @@ public partial class SshSession : IDisposable
         }
     }
 
+    // ── Interactive stream access for xterm.js ────────────────
+
+    public void WriteRaw(string data)
+    {
+        if (_shell is null || !_client.IsConnected) return;
+        _shell.Write(data);
+    }
+
+    public async Task<string?> ReadAvailableAsync(CancellationToken ct)
+    {
+        if (_shell is null || !_client.IsConnected) return null;
+
+        // Wait briefly for data
+        for (int i = 0; i < 10; i++)
+        {
+            if (_shell.DataAvailable)
+            {
+                var data = _shell.Read();
+                return data;
+            }
+            await Task.Delay(30, ct);
+        }
+        return null;
+    }
+
+    public ShellStream? GetShellStream() => _shell;
+
     public async Task<string> ExecuteCommandAsync(string command)
     {
         if (_shell is null || !_client.IsConnected)

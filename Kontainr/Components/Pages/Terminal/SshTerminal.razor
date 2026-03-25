@@ -4,13 +4,13 @@
 @inject SshSettingsService SshSettings
 @inject ToastService Toast
 @inject IJSRuntime JS
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>Terminal - Kontainr</PageTitle>
 
 <div class="k-topbar">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <a href="/settings" class="k-btn" style="text-decoration: none;">
+        <a href="/terminals" class="k-btn" style="text-decoration: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Back
         </a>
@@ -43,18 +43,9 @@
     <div class="k-card">
         <div class="k-card-header">
             <span>@(config?.Username)@@@(config?.Host):@(config?.Port)</span>
-            <button class="k-btn" @onclick="ClearTerminal">Clear</button>
+            <span style="font-size: 0.75rem; color: var(--k-text-muted);">Interactive SSH Shell</span>
         </div>
-        <div class="k-terminal">
-            <div class="k-terminal-output" id="ssh-terminal-output" style="min-height: 400px; max-height: 70vh;">@((MarkupString)terminalOutput)</div>
-            <div class="k-terminal-input-row">
-                <span class="k-terminal-prompt">@prompt</span>
-                <input id="ssh-terminal-input" class="k-terminal-input" type="text"
-                       placeholder="@(connected ? "Type a command..." : "Connect first...")"
-                       @bind="command" @bind:event="oninput"
-                       @onkeydown="HandleKey" disabled="@(!connected || busy)" />
-            </div>
-        </div>
+        <div id="ssh-xterm-container" style="padding: 4px; background: #010409; border-radius: 0 0 8px 8px; min-height: 400px;"></div>
     </div>
 </div>
 
@@ -64,33 +55,21 @@
     private SshConnectionConfig? config;
     private bool connected;
     private bool connecting;
-    private bool busy;
     private string? error;
-    private string command = "";
-    private string terminalOutput = "";
-    private string prompt = "$";
-    private List<string> history = [];
-    private int historyIndex = -1;
-
-    private bool jsReady;
+    private CancellationTokenSource? readCts;
+    private DotNetObjectReference<SshTerminal>? dotnetRef;
 
     protected override void OnInitialized()
     {
         config = SshSettings.GetConnection(ConnectionId);
         if (config is null)
-        {
             error = "Connection not found. Go to Settings to configure SSH connections.";
-        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            jsReady = true;
-            if (config is not null)
-                await Connect();
-        }
+        if (firstRender && config is not null)
+            await Connect();
     }
 
     private async Task Connect()
@@ -102,94 +81,93 @@
         {
             await Task.Run(() => SessionManager.GetOrCreateSession(ConnectionId));
             connected = true;
-            prompt = $"{config!.Username}@{config.Host}$";
-            terminalOutput += $"<span class=\"term-prompt\">Connected to {System.Web.HttpUtility.HtmlEncode(config.Name)} ({config.Host}:{config.Port})</span>\n";
-            Toast.Success($"Connected to {config.Name}");
+
+            dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("kontainr.initTerminal", "ssh-xterm-container", dotnetRef);
+
+            // Start reading output from the SSH shell
+            readCts = new CancellationTokenSource();
+            _ = ReadOutputLoop(readCts.Token);
+
+            Toast.Success($"Connected to {config!.Name}");
         }
         catch (Exception ex)
         {
             error = $"Connection failed: {ex.Message}";
             Toast.Error("Connection failed");
         }
+
         connecting = false;
         StateHasChanged();
-        if (jsReady)
-            await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
+    }
+
+    private async Task ReadOutputLoop(CancellationToken ct)
+    {
+        try
+        {
+            var session = SessionManager.GetOrCreateSession(ConnectionId);
+            var shell = session.GetShellStream();
+            if (shell is null) return;
+
+            var buffer = new byte[4096];
+            while (!ct.IsCancellationRequested)
+            {
+                if (shell.DataAvailable)
+                {
+                    var count = shell.Read(buffer, 0, buffer.Length);
+                    if (count > 0)
+                    {
+                        var text = System.Text.Encoding.UTF8.GetString(buffer, 0, count);
+                        await InvokeAsync(async () =>
+                        {
+                            await JS.InvokeVoidAsync("kontainr.writeTerminal", "ssh-xterm-container", text);
+                        });
+                    }
+                }
+                else
+                {
+                    await Task.Delay(30, ct);
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            await InvokeAsync(() =>
+            {
+                error = $"Connection lost: {ex.Message}";
+                connected = false;
+                StateHasChanged();
+            });
+        }
+    }
+
+    [JSInvokable]
+    public Task OnTerminalInput(string data)
+    {
+        if (!connected) return Task.CompletedTask;
+        try
+        {
+            var session = SessionManager.GetOrCreateSession(ConnectionId);
+            session.WriteRaw(data);
+        }
+        catch { }
+        return Task.CompletedTask;
     }
 
     private void Disconnect()
     {
+        readCts?.Cancel();
         SessionManager.DisconnectSession(ConnectionId);
         connected = false;
-        terminalOutput += "<span class=\"term-error\">Disconnected.</span>\n";
         Toast.Info("Disconnected");
     }
 
-    private async Task HandleKey(KeyboardEventArgs e)
+    public async ValueTask DisposeAsync()
     {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(command))
-        {
-            await ExecuteCommand();
-        }
-        else if (e.Key == "ArrowUp" && history.Count > 0)
-        {
-            historyIndex = Math.Min(historyIndex + 1, history.Count - 1);
-            command = history[history.Count - 1 - historyIndex];
-        }
-        else if (e.Key == "ArrowDown")
-        {
-            historyIndex = Math.Max(historyIndex - 1, -1);
-            command = historyIndex >= 0 ? history[history.Count - 1 - historyIndex] : "";
-        }
-        else if (e.Key == "l" && e.CtrlKey)
-        {
-            ClearTerminal();
-        }
-    }
-
-    private async Task ExecuteCommand()
-    {
-        var cmd = command.Trim();
-        command = "";
-        historyIndex = -1;
-        history.Add(cmd);
-        busy = true;
-
-        terminalOutput += $"<span class=\"term-prompt\">{System.Web.HttpUtility.HtmlEncode(prompt)} {System.Web.HttpUtility.HtmlEncode(cmd)}</span>\n";
-
-        try
-        {
-            var session = SessionManager.GetOrCreateSession(ConnectionId);
-            var result = await session.ExecuteCommandAsync(cmd);
-            if (!string.IsNullOrEmpty(result))
-                terminalOutput += System.Web.HttpUtility.HtmlEncode(result) + "\n";
-        }
-        catch (Exception ex)
-        {
-            terminalOutput += $"<span class=\"term-error\">Error: {System.Web.HttpUtility.HtmlEncode(ex.Message)}</span>\n";
-            if (!connected || ex.Message.Contains("not connected", StringComparison.OrdinalIgnoreCase))
-            {
-                connected = false;
-                terminalOutput += "<span class=\"term-error\">Session lost. Reconnect to continue.</span>\n";
-            }
-        }
-
-        busy = false;
-        StateHasChanged();
-        if (jsReady)
-        {
-            await JS.InvokeVoidAsync("kontainr.scrollToBottom", "ssh-terminal-output");
-            await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
-        }
-    }
-
-    private void ClearTerminal()
-    {
-        terminalOutput = "";
-    }
-
-    public void Dispose()
-    {
-        // Don't disconnect on dispose — session stays alive for reconnection
+        readCts?.Cancel();
+        readCts?.Dispose();
+        dotnetRef?.Dispose();
+        try { await JS.InvokeVoidAsync("kontainr.disposeTerminal", "ssh-xterm-container"); } catch { }
     }
 }
