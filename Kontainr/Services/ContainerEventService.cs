@@ -10,6 +10,7 @@ namespace Kontainr.Services;
 public class ContainerEventService : BackgroundService
 {
     private readonly DockerService _docker;
+    private readonly WebhookService _webhook;
     private readonly ILogger<ContainerEventService> _logger;
     private readonly List<ContainerAlert> _alerts = [];
     private readonly object _lock = new();
@@ -17,9 +18,10 @@ public class ContainerEventService : BackgroundService
 
     public event Action? OnAlert;
 
-    public ContainerEventService(DockerService docker, ILogger<ContainerEventService> logger)
+    public ContainerEventService(DockerService docker, WebhookService webhook, ILogger<ContainerEventService> logger)
     {
         _docker = docker;
+        _webhook = webhook;
         _logger = logger;
     }
 
@@ -105,6 +107,13 @@ public class ContainerEventService : BackgroundService
                 _alerts.RemoveAt(_alerts.Count - 1);
 
             OnAlert?.Invoke();
+
+            // Fire webhook
+            _ = Task.Run(async () =>
+            {
+                try { await _webhook.SendAlertAsync(containerName, type, message); }
+                catch { }
+            });
         }
     }
 }

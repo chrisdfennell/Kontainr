@@ -1,0 +1,210 @@
+@page "/images/{ImageId}/inspect"
+@rendermode InteractiveServer
+@inject DockerService Docker
+
+<PageTitle>Image Inspector - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/images" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>Image: @imageName</h1>
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="k-spinner">Loading...</div>
+    }
+    else if (inspect is not null)
+    {
+        <div class="k-stat-grid">
+            <div class="k-stat-card">
+                <div class="k-stat-label">Size</div>
+                <div class="k-stat-value blue" style="font-size: 1.3rem;">@FormatSize(inspect.Size)</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Layers</div>
+                <div class="k-stat-value">@layerCount</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Architecture</div>
+                <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Architecture</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">OS</div>
+                <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Os</div>
+            </div>
+            <div class="k-stat-card">
+                <div class="k-stat-label">Created</div>
+                <div class="k-stat-value" style="font-size: 1rem;">@inspect.Created.ToLocalTime().ToString("g")</div>
+            </div>
+        </div>
+
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Configuration</div>
+            <div class="k-card-body">
+                <div class="k-detail-grid">
+                    <div class="k-detail-key">ID</div>
+                    <div class="k-detail-value k-mono">@inspect.ID</div>
+
+                    @if (inspect.RepoTags?.Count > 0)
+                    {
+                        <div class="k-detail-key">Tags</div>
+                        <div class="k-detail-value">
+                            @foreach (var tag in inspect.RepoTags)
+                            {
+                                <span class="k-badge" style="margin-right: 0.3rem;">@tag</span>
+                            }
+                        </div>
+                    }
+
+                    @if (inspect.Config?.Entrypoint?.Count > 0)
+                    {
+                        <div class="k-detail-key">Entrypoint</div>
+                        <div class="k-detail-value k-mono">@string.Join(" ", inspect.Config.Entrypoint)</div>
+                    }
+
+                    @if (inspect.Config?.Cmd?.Count > 0)
+                    {
+                        <div class="k-detail-key">Cmd</div>
+                        <div class="k-detail-value k-mono">@string.Join(" ", inspect.Config.Cmd)</div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(inspect.Config?.WorkingDir))
+                    {
+                        <div class="k-detail-key">Working Dir</div>
+                        <div class="k-detail-value k-mono">@inspect.Config.WorkingDir</div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(inspect.Config?.User))
+                    {
+                        <div class="k-detail-key">User</div>
+                        <div class="k-detail-value k-mono">@inspect.Config.User</div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(inspect.DockerVersion))
+                    {
+                        <div class="k-detail-key">Docker Version</div>
+                        <div class="k-detail-value k-mono">@inspect.DockerVersion</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (inspect.Config?.ExposedPorts?.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Exposed Ports</div>
+                <div class="k-card-body">
+                    @foreach (var port in inspect.Config.ExposedPorts.Keys)
+                    {
+                        <span class="k-port-link" style="cursor: default; margin: 2px;">@port</span>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (inspect.Config?.Env?.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Environment Variables (@inspect.Config.Env.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+                    <tbody>
+                        @foreach (var env in inspect.Config.Env)
+                        {
+                            var parts = env.Split('=', 2);
+                            <tr>
+                                <td class="k-mono" style="font-weight: 600;">@parts[0]</td>
+                                <td class="k-mono">@(parts.Length > 1 ? parts[1] : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (inspect.Config?.Volumes?.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Defined Volumes</div>
+                <div class="k-card-body">
+                    @foreach (var vol in inspect.Config.Volumes.Keys)
+                    {
+                        <div class="k-mono" style="margin-bottom: 0.25rem;">@vol</div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (inspect.RootFS?.Layers?.Count > 0)
+        {
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">Layers (@inspect.RootFS.Layers.Count)</div>
+                <table class="k-table">
+                    <thead><tr><th style="width: 40px;">#</th><th>Digest</th></tr></thead>
+                    <tbody>
+                        @for (int i = 0; i < inspect.RootFS.Layers.Count; i++)
+                        {
+                            <tr>
+                                <td>@(i + 1)</td>
+                                <td class="k-mono" style="font-size: 0.72rem;">@inspect.RootFS.Layers[i]</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="k-card">
+            <div class="k-card-header">Raw Inspect</div>
+            <div class="k-log-viewer" style="max-height: 400px;">@inspectJson</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ImageId { get; set; } = "";
+
+    private Docker.DotNet.Models.ImageInspectResponse? inspect;
+    private string imageName = "";
+    private string inspectJson = "";
+    private int layerCount;
+    private bool loading = true;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // URL-decode the image ID (it may contain colons encoded as %3A)
+            var decodedId = Uri.UnescapeDataString(ImageId);
+            inspect = await Docker.InspectImageAsync(decodedId);
+            imageName = inspect.RepoTags?.FirstOrDefault() ?? decodedId;
+            layerCount = inspect.RootFS?.Layers?.Count ?? 0;
+            inspectJson = System.Text.Json.JsonSerializer.Serialize(inspect, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to inspect image: {ex.Message}";
+        }
+        loading = false;
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}

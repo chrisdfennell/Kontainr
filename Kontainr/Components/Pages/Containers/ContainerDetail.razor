@@ -30,6 +30,7 @@
                 </a>
             }
             <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
+            <button class="k-btn" @onclick="CloneContainer" disabled="@acting" title="Clone this container">Clone</button>
             <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="Pull latest image and recreate container">
                 @(recreating ? recreateStatus : "Update")
             </button>
@@ -605,6 +606,21 @@
             try { await Docker.RemoveContainerAsync(ContainerId, force: true); Toast.Success("Container removed"); }
             catch (Exception ex) { Toast.Error($"Remove failed: {ex.Message}"); acting = false; return; }
             Nav.NavigateTo("/containers");
+        });
+
+    private void CloneContainer() =>
+        ShowConfirm("Clone Container", $"Clone \"{container?.Name}\" as a new container? Port bindings will be removed to avoid conflicts.", "Clone", async () =>
+        {
+            acting = true;
+            try
+            {
+                var newName = $"{container?.Name}-clone";
+                var newId = await Docker.CloneContainerAsync(ContainerId, newName);
+                Toast.Success($"Cloned as '{newName}'");
+                Nav.NavigateTo($"/containers/{newId}");
+            }
+            catch (Exception ex) { Toast.Error($"Clone failed: {ex.Message}"); }
+            acting = false;
         });
 
     private void RequestRecreate() =>

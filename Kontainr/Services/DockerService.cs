@@ -251,6 +251,36 @@ public class DockerService : IDisposable
         return newContainer.ID;
     }
 
+    // ── Clone Container ────────────────────────────────────────────
+
+    public async Task<string> CloneContainerAsync(string id, string newName)
+    {
+        var inspect = await InspectContainerAsync(id);
+
+        var createParams = new CreateContainerParameters
+        {
+            Image = inspect.Config.Image,
+            Name = newName,
+            Env = inspect.Config.Env,
+            Cmd = inspect.Config.Cmd,
+            WorkingDir = inspect.Config.WorkingDir,
+            Labels = inspect.Config.Labels,
+            ExposedPorts = inspect.Config.ExposedPorts,
+            HostConfig = new HostConfig
+            {
+                Binds = inspect.HostConfig.Binds,
+                RestartPolicy = inspect.HostConfig.RestartPolicy,
+                NetworkMode = inspect.HostConfig.NetworkMode,
+                NanoCPUs = inspect.HostConfig.NanoCPUs,
+                Memory = inspect.HostConfig.Memory,
+                // Don't copy port bindings — they'd conflict
+            }
+        };
+
+        var result = await CreateContainerAsync(createParams);
+        return result.ID;
+    }
+
     // ── Recreate with new config ──────────────────────────────────
 
     public async Task<string> RecreateWithConfigAsync(string id, IList<string>? env, IDictionary<string, IList<PortBinding>>? portBindings,

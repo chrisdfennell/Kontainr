@@ -20,8 +20,11 @@ builder.Services.AddSingleton<SshSettingsService>();
 builder.Services.AddSingleton<SshSessionManager>();
 builder.Services.AddSingleton<StatsHistoryService>();
 builder.Services.AddSingleton<AuditService>();
+builder.Services.AddSingleton<WebhookService>();
 builder.Services.AddSingleton<ContainerEventService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ContainerEventService>());
+builder.Services.AddSingleton<ScheduledRestartService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledRestartService>());
 
 var app = builder.Build();
 
