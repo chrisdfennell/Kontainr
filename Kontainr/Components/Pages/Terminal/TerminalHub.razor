@@ -1,0 +1,114 @@
+@page "/terminals"
+@rendermode InteractiveServer
+@inject SshSettingsService SshSettings
+@inject DockerService Docker
+
+<PageTitle>Terminals - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Terminals</h1>
+</div>
+
+<div class="k-content">
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            SSH Connections
+            <a href="/settings" class="k-btn" style="text-decoration: none;">Manage in Settings</a>
+        </div>
+        @if (sshConnections.Count > 0)
+        {
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Host</th>
+                        <th>Port</th>
+                        <th>Username</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var conn in sshConnections)
+                    {
+                        <tr>
+                            <td><strong>@conn.Name</strong></td>
+                            <td class="k-mono">@conn.Host</td>
+                            <td>@conn.Port</td>
+                            <td class="k-mono">@conn.Username</td>
+                            <td style="text-align: right;">
+                                <a href="/terminal/@conn.Id" class="k-btn k-btn-success" style="text-decoration: none;">Connect</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div style="text-align: center; padding: 2rem; color: var(--k-text-muted);">
+                No SSH connections configured. <a href="/settings" style="color: var(--k-accent);">Add one in Settings</a>.
+            </div>
+        }
+    </div>
+
+    <div class="k-card">
+        <div class="k-card-header">Container Terminals</div>
+        @if (loading)
+        {
+            <div class="k-spinner">Loading...</div>
+        }
+        else if (runningContainers.Count > 0)
+        {
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Container</th>
+                        <th>Image</th>
+                        <th>Status</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in runningContainers)
+                    {
+                        <tr>
+                            <td><strong>@c.Name</strong></td>
+                            <td class="k-mono">@c.Image</td>
+                            <td>
+                                <span class="k-status @c.StateClass">
+                                    <span class="k-status-dot"></span>
+                                    @c.Status
+                                </span>
+                            </td>
+                            <td style="text-align: right;">
+                                <a href="/containers/@c.Id/terminal" class="k-btn k-btn-success" style="text-decoration: none;">Shell</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div style="text-align: center; padding: 2rem; color: var(--k-text-muted);">No running containers found.</div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<SshConnectionConfig> sshConnections = [];
+    private List<ContainerViewModel> runningContainers = [];
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        sshConnections = SshSettings.GetConnections();
+        try
+        {
+            var raw = await Docker.GetContainersAsync(false);
+            runningContainers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+        }
+        catch { }
+        loading = false;
+    }
+}
