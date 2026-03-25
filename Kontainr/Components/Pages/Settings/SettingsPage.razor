@@ -57,6 +57,11 @@
                         <label class="k-form-label">Password</label>
                         <input class="k-form-input" type="password" placeholder="@(editId is not null ? "(unchanged)" : "Enter password")" @bind="editPassword" />
                     </div>
+                    <div style="grid-column: span 2;">
+                        <label class="k-form-label">Init Commands</label>
+                        <input class="k-form-input" type="text" placeholder="e.g. Q, Y (comma-separated commands sent on connect)" @bind="editInitCommands" />
+                        <span style="font-size: 0.7rem; color: var(--k-text-muted);">Commands sent after login to escape menus. Separate with commas. Example for QNAP: Q, Y</span>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
                     <button class="k-btn k-btn-primary" @onclick="SaveConnection"
@@ -134,7 +139,7 @@
     private List<SshConnectionConfig> connections = [];
     private bool showForm;
     private string? editId;
-    private string editName = "", editHost = "", editUsername = "", editPassword = "";
+    private string editName = "", editHost = "", editUsername = "", editPassword = "", editInitCommands = "";
     private int editPort = 22;
     private string testResult = "";
     private bool testSuccess;
@@ -163,7 +168,7 @@
 
     private void ShowAddForm()
     {
-        editId = null; editName = ""; editHost = ""; editPort = 22; editUsername = ""; editPassword = "";
+        editId = null; editName = ""; editHost = ""; editPort = 22; editUsername = ""; editPassword = ""; editInitCommands = "";
         testResult = ""; showForm = true;
     }
 
@@ -171,6 +176,7 @@
     {
         editId = conn.Id; editName = conn.Name; editHost = conn.Host;
         editPort = conn.Port; editUsername = conn.Username; editPassword = "";
+        editInitCommands = string.Join(", ", conn.InitCommands);
         testResult = ""; showForm = true;
     }
 
@@ -184,7 +190,10 @@
             Name = editName.Trim(),
             Host = editHost.Trim(),
             Port = editPort,
-            Username = editUsername.Trim()
+            Username = editUsername.Trim(),
+            InitCommands = string.IsNullOrWhiteSpace(editInitCommands)
+                ? []
+                : editInitCommands.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
         };
 
         string? password = string.IsNullOrEmpty(editPassword) ? null : editPassword;

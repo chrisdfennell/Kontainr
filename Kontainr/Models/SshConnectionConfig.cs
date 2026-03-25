@@ -8,6 +8,7 @@ public class SshConnectionConfig
     public int Port { get; set; } = 22;
     public string Username { get; set; } = "";
     public string EncryptedPassword { get; set; } = "";
+    public List<string> InitCommands { get; set; } = [];
 }
 
 public class AppSettings
