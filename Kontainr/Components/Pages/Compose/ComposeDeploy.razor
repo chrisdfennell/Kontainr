@@ -1,0 +1,262 @@
+@page "/compose"
+@rendermode InteractiveServer
+@inject DockerService Docker
+@inject ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Compose Deploy - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Compose Deploy</h1>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    <div class="k-card" style="margin-bottom: 1rem;">
+        <div class="k-card-header">
+            Docker Compose File
+            <div class="k-btn-group">
+                <label class="k-btn" style="cursor: pointer;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Upload
+                    <InputFile OnChange="HandleFileUpload" style="display: none;" accept=".yml,.yaml" />
+                </label>
+                <button class="k-btn" @onclick="LoadSample" title="Load example">Example</button>
+            </div>
+        </div>
+        <div class="k-card-body" style="padding: 0;">
+            <textarea id="compose-editor" class="k-compose-editor" @bind="composeContent" @bind:event="oninput"
+                      placeholder="Paste your docker-compose.yml content here..."></textarea>
+        </div>
+    </div>
+
+    <div class="k-card" style="margin-bottom: 1rem;">
+        <div class="k-card-header">Deploy Options</div>
+        <div class="k-card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 500px;">
+                <div>
+                    <label class="k-form-label">Project Name</label>
+                    <input class="k-form-input" type="text" placeholder="my-project (optional)" @bind="projectName" />
+                </div>
+                <div>
+                    <label class="k-form-label">Working Directory</label>
+                    <input class="k-form-input" type="text" placeholder="/tmp/compose (on Docker host)" @bind="workDir" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(deployOutput))
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Output</div>
+            <div class="k-log-viewer" style="max-height: 300px;">@deployOutput</div>
+        </div>
+    }
+
+    <div style="display: flex; gap: 0.5rem;">
+        <button class="k-btn k-btn-primary" style="padding: 0.5rem 1.5rem;" @onclick="Deploy"
+                disabled="@(deploying || string.IsNullOrWhiteSpace(composeContent))">
+            @(deploying ? "Deploying..." : "Deploy Stack")
+        </button>
+        <button class="k-btn k-btn-danger" style="padding: 0.5rem 1.5rem;" @onclick="TearDown"
+                disabled="@(deploying || string.IsNullOrWhiteSpace(composeContent) || string.IsNullOrWhiteSpace(projectName))">
+            Tear Down
+        </button>
+    </div>
+</div>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private string composeContent = "";
+    private string projectName = "";
+    private string workDir = "/tmp/kontainr-compose";
+    private string deployOutput = "";
+    private string? error;
+    private bool deploying;
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 1024 * 1024));
+            composeContent = await reader.ReadToEndAsync();
+            // Try to extract project name from filename
+            var fileName = Path.GetFileNameWithoutExtension(e.File.Name);
+            if (fileName != "docker-compose" && fileName != "compose")
+                projectName = fileName;
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to read file: {ex.Message}";
+        }
+    }
+
+    private void LoadSample()
+    {
+        projectName = "example";
+        composeContent = """
+            services:
+              web:
+                image: nginx:alpine
+                ports:
+                  - "8090:80"
+                restart: unless-stopped
+            """;
+    }
+
+    private async Task Deploy()
+    {
+        if (string.IsNullOrWhiteSpace(composeContent)) return;
+        deploying = true;
+        error = null;
+        deployOutput = "Starting deployment...\n";
+        StateHasChanged();
+
+        try
+        {
+            // We need docker compose CLI which runs on the host.
+            // Since we have access to the Docker socket, we exec into a compose-capable container.
+            // Alternative: write the file and use docker exec on the host.
+            // Simplest approach: create a temporary container with docker CLI that runs compose up.
+
+            var dir = string.IsNullOrWhiteSpace(workDir) ? "/tmp/kontainr-compose" : workDir.Trim();
+            var proj = string.IsNullOrWhiteSpace(projectName) ? "kontainr-deploy" : projectName.Trim();
+
+            // Write compose file to a temp container with docker socket
+            deployOutput += $"Creating deployment container...\n";
+            StateHasChanged();
+
+            var composeBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(composeContent));
+
+            var createParams = new global::Docker.DotNet.Models.CreateContainerParameters
+            {
+                Image = "docker/compose:latest",
+                Cmd = ["sh", "-c", $"mkdir -p {dir} && echo '{composeBase64}' | base64 -d > {dir}/docker-compose.yml && cd {dir} && docker compose -p {proj} up -d 2>&1; echo '--- DONE ---'"],
+                HostConfig = new global::Docker.DotNet.Models.HostConfig
+                {
+                    Binds = ["/var/run/docker.sock:/var/run/docker.sock"],
+                    AutoRemove = true
+                }
+            };
+
+            // Try pulling docker compose image first
+            deployOutput += "Pulling docker/compose image...\n";
+            StateHasChanged();
+
+            try
+            {
+                await Docker.PullImageAsync("docker/compose", "latest", status =>
+                {
+                    deployOutput += status + "\n";
+                    InvokeAsync(StateHasChanged);
+                });
+            }
+            catch
+            {
+                // Try docker CLI image instead
+                deployOutput += "Trying docker:cli instead...\n";
+                StateHasChanged();
+
+                await Docker.PullImageAsync("docker", "cli", status =>
+                {
+                    deployOutput += status + "\n";
+                    InvokeAsync(StateHasChanged);
+                });
+
+                createParams.Image = "docker:cli";
+            }
+
+            deployOutput += "Running compose up...\n";
+            StateHasChanged();
+
+            var container = await Docker.CreateContainerAsync(createParams);
+            await Docker.StartContainerAsync(container.ID);
+
+            // Wait and collect logs
+            await Task.Delay(2000);
+            for (int i = 0; i < 30; i++)
+            {
+                try
+                {
+                    var logs = await Docker.GetContainerLogsAsync(container.ID, 100);
+                    if (!string.IsNullOrEmpty(logs))
+                    {
+                        deployOutput = logs;
+                        StateHasChanged();
+                    }
+                    if (logs.Contains("--- DONE ---")) break;
+                }
+                catch { break; } // container may have auto-removed
+                await Task.Delay(1000);
+            }
+
+            Toast.Success($"Stack '{proj}' deployed");
+        }
+        catch (Exception ex)
+        {
+            deployOutput += $"\nError: {ex.Message}\n";
+            Toast.Error("Deployment failed");
+        }
+
+        deploying = false;
+    }
+
+    private async Task TearDown()
+    {
+        if (string.IsNullOrWhiteSpace(projectName)) return;
+        deploying = true;
+        deployOutput = $"Tearing down stack '{projectName}'...\n";
+        StateHasChanged();
+
+        try
+        {
+            var dir = string.IsNullOrWhiteSpace(workDir) ? "/tmp/kontainr-compose" : workDir.Trim();
+
+            var createParams = new global::Docker.DotNet.Models.CreateContainerParameters
+            {
+                Image = "docker:cli",
+                Cmd = ["sh", "-c", $"cd {dir} && docker compose -p {projectName.Trim()} down 2>&1; echo '--- DONE ---'"],
+                HostConfig = new global::Docker.DotNet.Models.HostConfig
+                {
+                    Binds = ["/var/run/docker.sock:/var/run/docker.sock"],
+                    AutoRemove = true
+                }
+            };
+
+            var container = await Docker.CreateContainerAsync(createParams);
+            await Docker.StartContainerAsync(container.ID);
+
+            await Task.Delay(2000);
+            for (int i = 0; i < 20; i++)
+            {
+                try
+                {
+                    var logs = await Docker.GetContainerLogsAsync(container.ID, 100);
+                    if (!string.IsNullOrEmpty(logs))
+                    {
+                        deployOutput = logs;
+                        StateHasChanged();
+                    }
+                    if (logs.Contains("--- DONE ---")) break;
+                }
+                catch { break; }
+                await Task.Delay(1000);
+            }
+
+            Toast.Success($"Stack '{projectName}' torn down");
+        }
+        catch (Exception ex)
+        {
+            deployOutput += $"\nError: {ex.Message}\n";
+            Toast.Error("Tear down failed");
+        }
+
+        deploying = false;
+    }
+}

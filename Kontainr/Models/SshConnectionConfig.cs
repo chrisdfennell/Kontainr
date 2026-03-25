@@ -15,4 +15,5 @@ public class AppSettings
 {
     public string HostUrl { get; set; } = "localhost";
     public List<SshConnectionConfig> SshConnections { get; set; } = [];
+    public HashSet<string> FavoriteContainerNames { get; set; } = [];
 }

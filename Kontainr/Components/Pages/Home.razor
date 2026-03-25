@@ -1,6 +1,7 @@
 @page "/"
 @rendermode InteractiveServer
 @inject DockerService Docker
+@inject SshSettingsService Settings
 @implements IDisposable
 
 <PageTitle>Dashboard - Kontainr</PageTitle>
@@ -53,36 +54,86 @@
             </div>
         </div>
 
-        @if (containers.Count > 0)
+        @if (favoriteContainers.Count > 0)
         {
-            <div class="k-card">
-                <div class="k-card-header">Containers</div>
+            <div class="k-card" style="margin-bottom: 1rem;">
+                <div class="k-card-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--k-yellow)" stroke="var(--k-yellow)" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    Favorites
+                </div>
                 <table class="k-table">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Image</th>
-                            <th>Status</th>
-                            <th>CPU</th>
-                            <th>Memory</th>
-                            <th>Ports</th>
+                            <th class="col-name">Name</th>
+                            <th class="col-image">Image</th>
+                            <th class="col-status">Status</th>
+                            <th class="col-cpu">CPU</th>
+                            <th class="col-mem">Memory</th>
+                            <th class="col-ports">Ports</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in favoriteContainers)
+                        {
+                            <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
+                                <td class="col-name">
+                                    <span class="k-fav-star" @onclick:stopPropagation="true" @onclick="() => ToggleFav(c.Name)" title="Unpin">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--k-yellow)" stroke="var(--k-yellow)" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    </span>
+                                    @c.Name
+                                </td>
+                                <td class="col-image k-mono">@c.Image</td>
+                                <td class="col-status">
+                                    <span class="k-status @c.StateClass">
+                                        <span class="k-status-dot"></span>
+                                        @c.Status
+                                    </span>
+                                </td>
+                                <td class="col-cpu k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
+                                <td class="col-mem k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
+                                <td class="col-ports k-mono">@c.PortDisplay</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (containers.Count > 0)
+        {
+            <div class="k-card">
+                <div class="k-card-header">All Containers</div>
+                <table class="k-table">
+                    <thead>
+                        <tr>
+                            <th class="col-name">Name</th>
+                            <th class="col-image">Image</th>
+                            <th class="col-status">Status</th>
+                            <th class="col-cpu">CPU</th>
+                            <th class="col-mem">Memory</th>
+                            <th class="col-ports">Ports</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var c in containers)
                         {
                             <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
-                                <td>@c.Name</td>
-                                <td class="k-mono">@c.Image</td>
-                                <td>
+                                <td class="col-name">
+                                    <span class="k-fav-star" @onclick:stopPropagation="true" @onclick="() => ToggleFav(c.Name)" title="@(favorites.Contains(c.Name) ? "Unpin" : "Pin to favorites")">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="@(favorites.Contains(c.Name) ? "var(--k-yellow)" : "none")" stroke="@(favorites.Contains(c.Name) ? "var(--k-yellow)" : "var(--k-text-muted)")" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    </span>
+                                    @c.Name
+                                </td>
+                                <td class="col-image k-mono">@c.Image</td>
+                                <td class="col-status">
                                     <span class="k-status @c.StateClass">
                                         <span class="k-status-dot"></span>
                                         @c.Status
                                     </span>
                                 </td>
-                                <td class="k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
-                                <td class="k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
-                                <td class="k-mono">@c.PortDisplay</td>
+                                <td class="col-cpu k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
+                                <td class="col-mem k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
+                                <td class="col-ports k-mono">@c.PortDisplay</td>
                             </tr>
                         }
                     </tbody>
@@ -96,6 +147,8 @@
     [Inject] private NavigationManager Nav { get; set; } = default!;
 
     private List<ContainerViewModel> containers = [];
+    private List<ContainerViewModel> favoriteContainers = [];
+    private HashSet<string> favorites = [];
     private Dictionary<string, (double cpu, long memUsage, long memLimit)> stats = [];
     private int runningCount, stoppedCount, imageCount, volumeCount;
     private bool loading = true;
@@ -106,6 +159,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        favorites = Settings.GetFavorites();
         await LoadAsync();
         StartAutoRefresh();
     }
@@ -118,12 +172,12 @@
         {
             var rawContainers = await Docker.GetContainersAsync();
             containers = rawContainers.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            favoriteContainers = containers.Where(c => favorites.Contains(c.Name)).ToList();
             runningCount = containers.Count(c => c.IsRunning);
             stoppedCount = containers.Count(c => c.IsExited);
             imageCount = (await Docker.GetImagesAsync()).Count;
             volumeCount = (await Docker.GetVolumesAsync()).Volumes?.Count ?? 0;
 
-            // Fetch stats for running containers in parallel
             var running = containers.Where(c => c.IsRunning).ToList();
             var statsTasks = running.Select(async c =>
             {
@@ -146,6 +200,13 @@
         loading = false;
     }
 
+    private void ToggleFav(string name)
+    {
+        Settings.ToggleFavorite(name);
+        favorites = Settings.GetFavorites();
+        favoriteContainers = containers.Where(c => favorites.Contains(c.Name)).ToList();
+    }
+
     private static (double cpu, long memUsage, long memLimit) ComputeStats(Docker.DotNet.Models.ContainerStatsResponse s)
     {
         double cpu = 0;
@@ -157,13 +218,9 @@
         return (cpu, (long)s.MemoryStats.Usage, (long)s.MemoryStats.Limit);
     }
 
-    private string GetCpu(string id) =>
-        stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
-
-    private string GetMemory(string id) =>
-        stats.TryGetValue(id, out var s)
-            ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}"
-            : "...";
+    private string GetCpu(string id) => stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
+    private string GetMemory(string id) => stats.TryGetValue(id, out var s)
+        ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}" : "...";
 
     private static string FormatBytes(long bytes)
     {
@@ -179,18 +236,12 @@
         {
             refreshTimer = new Timer(async _ =>
             {
-                await InvokeAsync(async () =>
-                {
-                    await LoadAsync();
-                    StateHasChanged();
-                });
+                await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
             }, null, TimeSpan.FromSeconds(refreshInterval), TimeSpan.FromSeconds(refreshInterval));
         }
     }
 
     private void ToggleAutoRefresh() => StartAutoRefresh();
-
     private void NavigateToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
-
     public void Dispose() => refreshTimer?.Dispose();
 }

@@ -220,6 +220,95 @@ public class DockerService : IDisposable
         return newContainer.ID;
     }
 
+    // ── Recreate with new config ──────────────────────────────────
+
+    public async Task<string> RecreateWithConfigAsync(string id, IList<string>? env, IDictionary<string, IList<PortBinding>>? portBindings,
+        IDictionary<string, EmptyStruct>? exposedPorts, IList<string>? binds, RestartPolicy? restartPolicy, Action<string>? onProgress = null)
+    {
+        var inspect = await InspectContainerAsync(id);
+        var wasRunning = inspect.State?.Running == true;
+        var name = inspect.Name.TrimStart('/');
+
+        onProgress?.Invoke("Stopping container...");
+        if (wasRunning) await StopContainerAsync(id);
+
+        onProgress?.Invoke("Removing container...");
+        await RemoveContainerAsync(id, force: true);
+
+        onProgress?.Invoke("Creating with new config...");
+        var hostConfig = inspect.HostConfig;
+        if (portBindings is not null) hostConfig.PortBindings = portBindings;
+        if (binds is not null) hostConfig.Binds = binds;
+        if (restartPolicy is not null) hostConfig.RestartPolicy = restartPolicy;
+
+        var createParams = new CreateContainerParameters
+        {
+            Image = inspect.Config.Image,
+            Name = name,
+            Env = env ?? inspect.Config.Env,
+            Cmd = inspect.Config.Cmd,
+            WorkingDir = inspect.Config.WorkingDir,
+            Labels = inspect.Config.Labels,
+            ExposedPorts = exposedPorts ?? inspect.Config.ExposedPorts,
+            HostConfig = hostConfig
+        };
+
+        var newContainer = await CreateContainerAsync(createParams);
+        if (wasRunning)
+        {
+            onProgress?.Invoke("Starting container...");
+            await StartContainerAsync(newContainer.ID);
+        }
+        onProgress?.Invoke("Done!");
+        return newContainer.ID;
+    }
+
+    // ── Update Checker ──────────────────────────────────────────
+
+    public async Task<ImageInspectResponse> InspectImageAsync(string name)
+    {
+        return await _client.Images.InspectImageAsync(name);
+    }
+
+    /// <summary>
+    /// Check if a newer image exists on the registry by pulling and comparing digests.
+    /// Returns true if an update is available.
+    /// </summary>
+    public async Task<bool> CheckImageUpdateAsync(string image)
+    {
+        try
+        {
+            var repo = image;
+            var tag = "latest";
+            if (image.Contains(':'))
+            {
+                var parts = image.Split(':', 2);
+                repo = parts[0];
+                tag = parts[1];
+            }
+
+            // Get local image ID
+            ImageInspectResponse? localInspect;
+            try { localInspect = await InspectImageAsync(image); }
+            catch { return false; } // image not found locally
+
+            var localId = localInspect.ID;
+
+            // Pull to check for updates (Docker will skip if already up to date)
+            await _client.Images.CreateImageAsync(
+                new ImagesCreateParameters { FromImage = repo, Tag = tag },
+                null, new Progress<JSONMessage>());
+
+            // Re-inspect to see if the ID changed
+            var afterInspect = await InspectImageAsync(image);
+            return afterInspect.ID != localId;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // ── Prune ────────────────────────────────────────────────────
 
     public async Task<ContainersPruneResponse> PruneContainersAsync()
