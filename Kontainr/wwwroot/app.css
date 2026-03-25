@@ -749,6 +749,14 @@ html, body {
     text-decoration: none;
 }
 
+/* ── Sparkline Charts ─────────────────────────────────────────── */
+
+.k-sparkline {
+    width: 100%;
+    height: 80px;
+    display: block;
+}
+
 /* ── Form Inputs ──────────────────────────────────────────────── */
 
 .k-form-label {

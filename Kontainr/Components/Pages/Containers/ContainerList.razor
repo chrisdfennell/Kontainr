@@ -3,6 +3,7 @@
 @inject DockerService Docker
 @inject ToastService Toast
 @inject SshSettingsService Settings
+@inject StatsHistoryService StatsHistory
 @implements IDisposable
 
 <PageTitle>Containers - Kontainr</PageTitle>
@@ -27,6 +28,7 @@
             <option value="10">10s</option>
             <option value="30">30s</option>
         </select>
+        <a href="/containers/create" class="k-btn k-btn-primary" style="text-decoration: none;">Create</a>
         <button class="k-btn" @onclick="LoadAsync" disabled="@loading">Refresh</button>
     </div>
 </div>
@@ -165,6 +167,7 @@
                     if (sysDelta > 0 && cpuDelta >= 0)
                         cpu = (cpuDelta / sysDelta) * cpuCount * 100.0;
                     newStats[r.Id] = (cpu, (long)r.Stats.MemoryStats.Usage, (long)r.Stats.MemoryStats.Limit);
+                    StatsHistory.Record(r.Id, cpu, (long)r.Stats.MemoryStats.Usage);
                 }
             }
             stats = newStats;
