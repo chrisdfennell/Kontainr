@@ -1,0 +1,239 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject SshSettingsService SshSettings
+@inject ToastService Toast
+
+<PageTitle>Settings - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
+
+<div class="k-topbar">
+    <h1>Settings</h1>
+</div>
+
+<div class="k-content">
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">General</div>
+        <div class="k-card-body">
+            <div style="max-width: 400px;">
+                <label class="k-form-label">Docker Host URL</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input class="k-form-input" type="text" placeholder="fennell-nas" @bind="hostUrl" />
+                    <button class="k-btn k-btn-primary" @onclick="SaveHostUrl">Save</button>
+                </div>
+                <span style="font-size: 0.72rem; color: var(--k-text-muted);">Used for port links, e.g. http://@(hostUrl):8080. Use hostname or IP, no http:// prefix.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            SSH Connections
+            <button class="k-btn k-btn-primary" @onclick="ShowAddForm">Add Connection</button>
+        </div>
+
+        @if (showForm)
+        {
+            <div class="k-card-body" style="border-bottom: 1px solid var(--k-border);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 600px;">
+                    <div>
+                        <label class="k-form-label">Name</label>
+                        <input class="k-form-input" type="text" placeholder="My NAS" @bind="editName" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Host</label>
+                        <input class="k-form-input" type="text" placeholder="192.168.1.100 or hostname" @bind="editHost" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Port</label>
+                        <input class="k-form-input" type="number" @bind="editPort" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Username</label>
+                        <input class="k-form-input" type="text" placeholder="admin" @bind="editUsername" />
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <label class="k-form-label">Password</label>
+                        <input class="k-form-input" type="password" placeholder="@(editId is not null ? "(unchanged)" : "Enter password")" @bind="editPassword" />
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveConnection"
+                            disabled="@(string.IsNullOrWhiteSpace(editName) || string.IsNullOrWhiteSpace(editHost) || string.IsNullOrWhiteSpace(editUsername))">
+                        @(editId is not null ? "Update" : "Save")
+                    </button>
+                    <button class="k-btn" @onclick="CancelForm">Cancel</button>
+                    @if (!string.IsNullOrEmpty(testResult))
+                    {
+                        <span style="align-self: center; font-size: 0.8rem; color: @(testSuccess ? "var(--k-green)" : "var(--k-red)");">@testResult</span>
+                    }
+                    <button class="k-btn" @onclick="TestConnection" disabled="@testing"
+                            style="margin-left: auto;">
+                        @(testing ? "Testing..." : "Test Connection")
+                    </button>
+                </div>
+            </div>
+        }
+
+        @if (connections.Count > 0)
+        {
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Host</th>
+                        <th>Port</th>
+                        <th>Username</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var conn in connections)
+                    {
+                        <tr>
+                            <td><strong>@conn.Name</strong></td>
+                            <td class="k-mono">@conn.Host</td>
+                            <td>@conn.Port</td>
+                            <td class="k-mono">@conn.Username</td>
+                            <td style="text-align: right;">
+                                <div class="k-btn-group">
+                                    <a href="/terminal/@conn.Id" class="k-btn k-btn-success" style="text-decoration: none;">Connect</a>
+                                    <button class="k-btn" @onclick="() => EditConnection(conn)">Edit</button>
+                                    <button class="k-btn k-btn-danger" @onclick="() => RequestDelete(conn)">Delete</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (!showForm)
+        {
+            <div style="text-align: center; padding: 2rem; color: var(--k-text-muted);">
+                No SSH connections configured. Click "Add Connection" to get started.
+            </div>
+        }
+    </div>
+
+    <div class="k-card">
+        <div class="k-card-header">About Authentication</div>
+        <div class="k-card-body" style="font-size: 0.85rem; color: var(--k-text-muted); line-height: 1.6;">
+            <p style="margin: 0 0 0.5rem;">SSH passwords are encrypted using ASP.NET Data Protection and stored locally. They never leave this server.</p>
+            <p style="margin: 0 0 0.5rem;">To enable login protection for Kontainr itself, set these environment variables on the container:</p>
+            <code class="k-mono" style="display: block; padding: 0.5rem; background: var(--k-bg); border-radius: 4px;">
+                Auth__Username=youruser<br/>
+                Auth__Password=yourpassword
+            </code>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string hostUrl = "localhost";
+    private List<SshConnectionConfig> connections = [];
+    private bool showForm;
+    private string? editId;
+    private string editName = "", editHost = "", editUsername = "", editPassword = "";
+    private int editPort = 22;
+    private string testResult = "";
+    private bool testSuccess;
+    private bool testing;
+
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? pendingAction;
+    private void ShowConfirm(string t, string m, string b, Func<Task> a) { confirmTitle = t; confirmMessage = m; confirmBtnText = b; pendingAction = a; confirmVisible = true; }
+    private async Task ConfirmAction() { confirmVisible = false; if (pendingAction is not null) await pendingAction(); pendingAction = null; }
+    private void CancelConfirm() { confirmVisible = false; pendingAction = null; }
+
+    protected override void OnInitialized()
+    {
+        hostUrl = SshSettings.GetHostUrl();
+        LoadConnections();
+    }
+
+    private void SaveHostUrl()
+    {
+        SshSettings.SetHostUrl(hostUrl);
+        Toast.Success("Host URL saved");
+    }
+
+    private void LoadConnections() => connections = SshSettings.GetConnections();
+
+    private void ShowAddForm()
+    {
+        editId = null; editName = ""; editHost = ""; editPort = 22; editUsername = ""; editPassword = "";
+        testResult = ""; showForm = true;
+    }
+
+    private void EditConnection(SshConnectionConfig conn)
+    {
+        editId = conn.Id; editName = conn.Name; editHost = conn.Host;
+        editPort = conn.Port; editUsername = conn.Username; editPassword = "";
+        testResult = ""; showForm = true;
+    }
+
+    private void CancelForm() { showForm = false; testResult = ""; }
+
+    private void SaveConnection()
+    {
+        var config = new SshConnectionConfig
+        {
+            Id = editId ?? Guid.NewGuid().ToString("N")[..8],
+            Name = editName.Trim(),
+            Host = editHost.Trim(),
+            Port = editPort,
+            Username = editUsername.Trim()
+        };
+
+        string? password = string.IsNullOrEmpty(editPassword) ? null : editPassword;
+        SshSettings.SaveConnection(config, password);
+        Toast.Success(editId is not null ? "Connection updated" : "Connection saved");
+        showForm = false;
+        LoadConnections();
+    }
+
+    private void RequestDelete(SshConnectionConfig conn) =>
+        ShowConfirm("Delete Connection", $"Delete SSH connection \"{conn.Name}\"?", "Delete", () =>
+        {
+            SshSettings.DeleteConnection(conn.Id);
+            Toast.Success("Connection deleted");
+            LoadConnections();
+            return Task.CompletedTask;
+        });
+
+    private async Task TestConnection()
+    {
+        testing = true; testResult = "Connecting..."; testSuccess = false;
+        StateHasChanged();
+
+        try
+        {
+            var password = editPassword;
+            if (string.IsNullOrEmpty(password) && editId is not null)
+            {
+                var existing = SshSettings.GetConnection(editId);
+                if (existing is not null)
+                    password = SshSettings.DecryptPassword(existing.EncryptedPassword);
+            }
+
+            await Task.Run(() =>
+            {
+                using var client = new Renci.SshNet.SshClient(editHost.Trim(), editPort, editUsername.Trim(), password ?? "");
+                client.ConnectionInfo.Timeout = TimeSpan.FromSeconds(5);
+                client.Connect();
+                client.Disconnect();
+            });
+
+            testResult = "Connection successful!";
+            testSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            testResult = $"Failed: {ex.Message}";
+            testSuccess = false;
+        }
+        testing = false;
+    }
+}

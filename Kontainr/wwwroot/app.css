@@ -749,6 +749,36 @@ html, body {
     text-decoration: none;
 }
 
+/* ── Form Inputs ──────────────────────────────────────────────── */
+
+.k-form-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--k-text-muted);
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.k-form-input {
+    width: 100%;
+    background: var(--k-bg);
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.45rem 0.75rem;
+    color: var(--k-text);
+    font-size: 0.85rem;
+    transition: border-color 0.15s;
+}
+
+.k-form-input:focus {
+    outline: none;
+    border-color: var(--k-accent);
+}
+
+.k-form-input::placeholder {
+    color: var(--k-text-muted);
+}
+
 /* ── Override Blazor defaults ─────────────────────────────────── */
 
 .blazor-error-boundary {

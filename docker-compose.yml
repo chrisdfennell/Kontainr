@@ -8,4 +8,13 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - kontainr-data:/app/data
+    environment:
+      # Uncomment to enable login:
+      # - Auth__Username=admin
+      # - Auth__Password=changeme
+      - KONTAINR_DATA=/app/data
     restart: unless-stopped
+
+volumes:
+  kontainr-data:

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject DockerService Docker
 @inject ToastService Toast
+@inject SshSettingsService Settings
 @implements IDisposable
 
 <PageTitle>Containers - Kontainr</PageTitle>
@@ -111,6 +112,7 @@
     private bool autoRefresh = true;
     private int refreshInterval = 5;
     private Timer? refreshTimer;
+    private string hostUrl = "localhost";
 
     // Confirm dialog
     private bool confirmVisible;
@@ -121,6 +123,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        hostUrl = Settings.GetHostUrl();
         await LoadAsync();
         StartAutoRefresh();
     }
@@ -359,7 +362,7 @@
                             {
                                 @foreach (var p in c.PublicPorts)
                                 {
-                                    <a href="http://localhost:@p.PublicPort" target="_blank" class="k-port-link" title="Open in browser">@p.PublicPort:@p.PrivatePort/@p.Type</a>
+                                    <a href="http://@(hostUrl):@p.PublicPort" target="_blank" class="k-port-link" title="Open in browser">@p.PublicPort:@p.PrivatePort/@p.Type</a>
                                 }
                             }
                             else

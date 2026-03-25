@@ -23,3 +23,8 @@ Desktop.ini
 
 ## Docker
 docker-compose.override.yml
+
+## Kontainr data
+Kontainr/keys/
+Kontainr/kontainr-settings.json
+Kontainr/ssh-settings.json

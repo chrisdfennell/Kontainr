@@ -1,0 +1,180 @@
+@page "/terminal/{ConnectionId}"
+@rendermode InteractiveServer
+@inject SshSessionManager SessionManager
+@inject SshSettingsService SshSettings
+@inject ToastService Toast
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Terminal - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/settings" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>@(config?.Name ?? "Terminal")</h1>
+        @if (connected)
+        {
+            <span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">Connected</span>
+        }
+    </div>
+    <div class="k-btn-group">
+        @if (connected)
+        {
+            <button class="k-btn k-btn-danger" @onclick="Disconnect">Disconnect</button>
+        }
+        else
+        {
+            <button class="k-btn k-btn-success" @onclick="Connect" disabled="@connecting">
+                @(connecting ? "Connecting..." : "Connect")
+            </button>
+        }
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    <div class="k-card">
+        <div class="k-card-header">
+            <span>@(config?.Username)@@@(config?.Host):@(config?.Port)</span>
+            <button class="k-btn" @onclick="ClearTerminal">Clear</button>
+        </div>
+        <div class="k-terminal">
+            <div class="k-terminal-output" id="ssh-terminal-output" style="min-height: 400px; max-height: 70vh;">@((MarkupString)terminalOutput)</div>
+            <div class="k-terminal-input-row">
+                <span class="k-terminal-prompt">@prompt</span>
+                <input id="ssh-terminal-input" class="k-terminal-input" type="text"
+                       placeholder="@(connected ? "Type a command..." : "Connect first...")"
+                       @bind="command" @bind:event="oninput"
+                       @onkeydown="HandleKey" disabled="@(!connected || busy)" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string ConnectionId { get; set; } = "";
+
+    private SshConnectionConfig? config;
+    private bool connected;
+    private bool connecting;
+    private bool busy;
+    private string? error;
+    private string command = "";
+    private string terminalOutput = "";
+    private string prompt = "$";
+    private List<string> history = [];
+    private int historyIndex = -1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        config = SshSettings.GetConnection(ConnectionId);
+        if (config is null)
+        {
+            error = "Connection not found. Go to Settings to configure SSH connections.";
+            return;
+        }
+        await Connect();
+    }
+
+    private async Task Connect()
+    {
+        connecting = true; error = null;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Run(() => SessionManager.GetOrCreateSession(ConnectionId));
+            connected = true;
+            prompt = $"{config!.Username}@{config.Host}$";
+            terminalOutput += $"<span class=\"term-prompt\">Connected to {System.Web.HttpUtility.HtmlEncode(config.Name)} ({config.Host}:{config.Port})</span>\n";
+            Toast.Success($"Connected to {config.Name}");
+        }
+        catch (Exception ex)
+        {
+            error = $"Connection failed: {ex.Message}";
+            Toast.Error("Connection failed");
+        }
+        connecting = false;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("kontainr.focusElement", "ssh-terminal-input");
+    }
+
+    private void Disconnect()
+    {
+        SessionManager.DisconnectSession(ConnectionId);
+        connected = false;
+        terminalOutput += "<span class=\"term-error\">Disconnected.</span>\n";
+        Toast.Info("Disconnected");
+    }
+
+    private async Task HandleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(command))
+        {
+            await ExecuteCommand();
+        }
+        else if (e.Key == "ArrowUp" && history.Count > 0)
+        {
+            historyIndex = Math.Min(historyIndex + 1, history.Count - 1);
+            command = history[history.Count - 1 - historyIndex];
+        }
+        else if (e.Key == "ArrowDown")
+        {
+            historyIndex = Math.Max(historyIndex - 1, -1);
+            command = historyIndex >= 0 ? history[history.Count - 1 - historyIndex] : "";
+        }
+        else if (e.Key == "l" && e.CtrlKey)
+        {
+            ClearTerminal();
+        }
+    }
+
+    private async Task ExecuteCommand()
+    {
+        var cmd = command.Trim();
+        command = "";
+        historyIndex = -1;
+        history.Add(cmd);
+        busy = true;
+
+        terminalOutput += $"<span class=\"term-prompt\">{System.Web.HttpUtility.HtmlEncode(prompt)} {System.Web.HttpUtility.HtmlEncode(cmd)}</span>\n";
+
+        try
+        {
+            var session = SessionManager.GetOrCreateSession(ConnectionId);
+            var result = await session.ExecuteCommandAsync(cmd);
+            if (!string.IsNullOrEmpty(result))
+                terminalOutput += System.Web.HttpUtility.HtmlEncode(result) + "\n";
+        }
+        catch (Exception ex)
+        {
+            terminalOutput += $"<span class=\"term-error\">Error: {System.Web.HttpUtility.HtmlEncode(ex.Message)}</span>\n";
+            if (!connected || ex.Message.Contains("not connected", StringComparison.OrdinalIgnoreCase))
+            {
+                connected = false;
+                terminalOutput += "<span class=\"term-error\">Session lost. Reconnect to continue.</span>\n";
+            }
+        }
+
+        busy = false;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("kontainr.scrollToBottom", "ssh-terminal-output");
+    }
+
+    private void ClearTerminal()
+    {
+        terminalOutput = "";
+    }
+
+    public void Dispose()
+    {
+        // Don't disconnect on dispose — session stays alive for reconnection
+    }
+}
