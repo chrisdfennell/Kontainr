@@ -254,7 +254,7 @@ public class DockerService : IDisposable
     // ── Recreate with new config ──────────────────────────────────
 
     public async Task<string> RecreateWithConfigAsync(string id, IList<string>? env, IDictionary<string, IList<PortBinding>>? portBindings,
-        IDictionary<string, EmptyStruct>? exposedPorts, IList<string>? binds, RestartPolicy? restartPolicy, Action<string>? onProgress = null)
+        IDictionary<string, EmptyStruct>? exposedPorts, IList<string>? binds, RestartPolicy? restartPolicy, string? networkMode = null, Action<string>? onProgress = null)
     {
         var inspect = await InspectContainerAsync(id);
         var wasRunning = inspect.State?.Running == true;
@@ -271,6 +271,7 @@ public class DockerService : IDisposable
         if (portBindings is not null) hostConfig.PortBindings = portBindings;
         if (binds is not null) hostConfig.Binds = binds;
         if (restartPolicy is not null) hostConfig.RestartPolicy = restartPolicy;
+        if (networkMode is not null) hostConfig.NetworkMode = networkMode;
 
         var createParams = new CreateContainerParameters
         {

@@ -96,6 +96,26 @@
             </div>
         </div>
 
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">Network</div>
+            <div class="k-card-body">
+                <div style="max-width: 350px;">
+                    <label class="k-form-label">Network Mode</label>
+                    <select class="k-form-input" @bind="networkMode">
+                        <option value="">(keep current)</option>
+                        @foreach (var net in availableNetworks)
+                        {
+                            <option value="@net" selected="@(net == networkMode)">@net</option>
+                        }
+                    </select>
+                    @if (!string.IsNullOrEmpty(currentNetwork))
+                    {
+                        <span style="font-size: 0.72rem; color: var(--k-text-muted);">Currently: @currentNetwork</span>
+                    }
+                </div>
+            </div>
+        </div>
+
         @if (!string.IsNullOrEmpty(applyStatus))
         {
             <div class="k-pull-status" style="margin-bottom: 1rem;">@applyStatus</div>
@@ -116,6 +136,9 @@
 
     private string containerName = "";
     private string restartPolicy = "no";
+    private string networkMode = "";
+    private string currentNetwork = "";
+    private List<string> availableNetworks = [];
     private bool loading = true;
     private bool applying;
     private string? error;
@@ -150,6 +173,17 @@
                     }
                 }
             }
+
+            // Parse network
+            currentNetwork = inspect.HostConfig?.NetworkMode ?? "";
+            if (string.IsNullOrEmpty(currentNetwork) && inspect.NetworkSettings?.Networks?.Count > 0)
+                currentNetwork = inspect.NetworkSettings.Networks.Keys.First();
+            try
+            {
+                var nets = await Docker.GetNetworksAsync();
+                availableNetworks = nets.Select(n => n.Name).OrderBy(n => n).ToList();
+            }
+            catch { }
 
             // Parse restart policy
             restartPolicy = inspect.HostConfig?.RestartPolicy?.Name switch
@@ -206,8 +240,9 @@
                 }
             };
 
+            var net = string.IsNullOrEmpty(networkMode) ? null : networkMode;
             var newId = await Docker.RecreateWithConfigAsync(ContainerId, env, portBindings, exposedPorts,
-                null, rp, status => { applyStatus = status; InvokeAsync(StateHasChanged); });
+                null, rp, net, status => { applyStatus = status; InvokeAsync(StateHasChanged); });
 
             Toast.Success("Container recreated with new config");
             Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
