@@ -18,6 +18,7 @@ builder.Services.AddSingleton<DockerService>();
 builder.Services.AddSingleton<ToastService>();
 builder.Services.AddSingleton<SshSettingsService>();
 builder.Services.AddSingleton<SshSessionManager>();
+builder.Services.AddSingleton<StatsHistoryService>();
 
 var app = builder.Build();
 

@@ -149,6 +149,77 @@ public class DockerService : IDisposable
             null, progress, ct);
     }
 
+    // ── Create Container ──────────────────────────────────────────
+
+    public async Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters)
+    {
+        return await _client.Containers.CreateContainerAsync(parameters);
+    }
+
+    // ── Recreate Container (pull + recreate with same config) ───
+
+    public async Task<string> RecreateContainerAsync(string id, Action<string>? onProgress = null)
+    {
+        var inspect = await InspectContainerAsync(id);
+        var wasRunning = inspect.State?.Running == true;
+        var name = inspect.Name.TrimStart('/');
+        var image = inspect.Config.Image;
+
+        // Pull latest image
+        onProgress?.Invoke($"Pulling {image}...");
+        var tag = "latest";
+        var repo = image;
+        if (image.Contains(':'))
+        {
+            var parts = image.Split(':', 2);
+            repo = parts[0];
+            tag = parts[1];
+        }
+
+        await _client.Images.CreateImageAsync(
+            new ImagesCreateParameters { FromImage = repo, Tag = tag },
+            null,
+            new Progress<JSONMessage>(msg =>
+            {
+                if (!string.IsNullOrEmpty(msg.Status))
+                    onProgress?.Invoke(msg.Status);
+            }));
+
+        // Stop and remove old container
+        onProgress?.Invoke("Stopping old container...");
+        if (wasRunning)
+            await StopContainerAsync(id);
+
+        onProgress?.Invoke("Removing old container...");
+        await RemoveContainerAsync(id, force: true);
+
+        // Recreate with same config
+        onProgress?.Invoke("Creating new container...");
+        var createParams = new CreateContainerParameters
+        {
+            Image = image,
+            Name = name,
+            Env = inspect.Config.Env,
+            Cmd = inspect.Config.Cmd,
+            WorkingDir = inspect.Config.WorkingDir,
+            Labels = inspect.Config.Labels,
+            ExposedPorts = inspect.Config.ExposedPorts,
+            HostConfig = inspect.HostConfig
+        };
+
+        var newContainer = await CreateContainerAsync(createParams);
+
+        // Start if it was running before
+        if (wasRunning)
+        {
+            onProgress?.Invoke("Starting new container...");
+            await StartContainerAsync(newContainer.ID);
+        }
+
+        onProgress?.Invoke("Done!");
+        return newContainer.ID;
+    }
+
     // ── Prune ────────────────────────────────────────────────────
 
     public async Task<ContainersPruneResponse> PruneContainersAsync()

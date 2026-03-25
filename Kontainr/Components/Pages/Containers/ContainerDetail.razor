@@ -3,6 +3,7 @@
 @inject DockerService Docker
 @inject IJSRuntime JS
 @inject ToastService Toast
+@inject StatsHistoryService StatsHistory
 @implements IDisposable
 
 <PageTitle>Container - Kontainr</PageTitle>
@@ -21,6 +22,9 @@
     @if (container is not null)
     {
         <div class="k-btn-group">
+            <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="Pull latest image and recreate container">
+                @(recreating ? recreateStatus : "Update")
+            </button>
             @if (inspect?.State?.Running == true)
             {
                 <button class="k-btn" @onclick="Stop" disabled="@acting">Stop</button>
@@ -91,6 +95,24 @@
                     <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Platform</div>
                 </div>
             </div>
+
+            @if (StatsHistory.GetHistory(ContainerId) is { CpuPoints.Count: > 1 } history)
+            {
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="k-card">
+                        <div class="k-card-header">CPU Usage</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="cpu-sparkline" class="k-sparkline"></canvas>
+                        </div>
+                    </div>
+                    <div class="k-card">
+                        <div class="k-card-header">Memory Usage</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="mem-sparkline" class="k-sparkline"></canvas>
+                        </div>
+                    </div>
+                </div>
+            }
 
             <div class="k-card" style="margin-bottom: 1rem;">
                 <div class="k-card-header">Details</div>
@@ -277,6 +299,8 @@
     private double? cpuPercent;
     private long? memUsage;
     private long? memLimit;
+    private bool recreating;
+    private string recreateStatus = "";
 
     // Log streaming
     private bool logStreaming;
@@ -291,6 +315,23 @@
     private int historyIndex = -1;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Render sparklines after each render if data exists
+        var history = StatsHistory.GetHistory(ContainerId);
+        if (history is not null && history.CpuPoints.Count > 1 && activeTab == "overview")
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("kontainr.drawSparkline", "cpu-sparkline",
+                    history.CpuPoints.ToArray(), "#58a6ff", 100.0);
+                await JS.InvokeVoidAsync("kontainr.drawSparkline", "mem-sparkline",
+                    history.MemPoints.Select(m => (double)m).ToArray(), "#3fb950", 0.0);
+            }
+            catch { /* canvas may not exist yet */ }
+        }
+    }
 
     private async Task LoadAsync()
     {
@@ -320,6 +361,7 @@
                     cpuPercent = sysDelta > 0 ? (cpuDelta / sysDelta) * cpuCount * 100.0 : 0;
                     memUsage = (long)stats.MemoryStats.Usage;
                     memLimit = (long)stats.MemoryStats.Limit;
+                    StatsHistory.Record(ContainerId, cpuPercent.Value, memUsage.Value);
                 }
             }
         }
@@ -544,6 +586,31 @@
             try { await Docker.RemoveContainerAsync(ContainerId, force: true); Toast.Success("Container removed"); }
             catch (Exception ex) { Toast.Error($"Remove failed: {ex.Message}"); acting = false; return; }
             Nav.NavigateTo("/containers");
+        });
+
+    private void RequestRecreate() =>
+        ShowConfirm("Update Container", $"Pull latest image for \"{container?.Name}\" and recreate with the same configuration?\n\nThe container will be stopped and removed, then recreated.", "Update", async () =>
+        {
+            recreating = true;
+            recreateStatus = "Starting...";
+            StateHasChanged();
+            try
+            {
+                var newId = await Docker.RecreateContainerAsync(ContainerId, status =>
+                {
+                    recreateStatus = status;
+                    InvokeAsync(StateHasChanged);
+                });
+                Toast.Success($"Container updated successfully");
+                Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+            }
+            catch (Exception ex)
+            {
+                Toast.Error($"Update failed: {ex.Message}");
+                recreating = false;
+                recreateStatus = "";
+                await LoadAsync();
+            }
         });
 
     private void SetTabOverview() => activeTab = "overview";
