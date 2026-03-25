@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Kontainr/wwwroot/favicon.svg" width="80" alt="Kontainr logo"/>
+  <img src="https://raw.githubusercontent.com/chrisdfennell/Kontainr/refs/heads/dev/Kontainr/wwwroot/favicon.svg" width="80" alt="Kontainr logo"/>
 </p>
 
 <h1 align="center">Kontainr</h1>
