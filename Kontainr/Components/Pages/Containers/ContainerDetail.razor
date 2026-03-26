@@ -697,13 +697,14 @@
     private async Task PollForReload()
     {
         // After the updater starts, Kontainr will be stopped and restarted.
-        // Poll the page URL to detect when the new instance is up, then reload.
-        await Task.Delay(8000); // wait for the updater to do its thing
+        // The old container ID won't exist anymore, so redirect to the containers list.
+        // The reconnect modal will auto-reconnect, but we also poll and redirect explicitly.
+        await Task.Delay(8000);
         for (var i = 0; i < 30; i++)
         {
             try
             {
-                await JS.InvokeVoidAsync("eval", "fetch('/').then(r => { if(r.ok) location.reload(); })");
+                await JS.InvokeVoidAsync("eval", "fetch('/').then(r => { if(r.ok) window.location.href = '/containers'; })");
             }
             catch { }
             await Task.Delay(2000);
