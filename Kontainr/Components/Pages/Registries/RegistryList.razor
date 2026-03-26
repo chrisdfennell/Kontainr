@@ -1,0 +1,249 @@
+@page "/registries"
+@rendermode InteractiveServer
+@inject SshSettingsService Settings
+@inject RegistryService Registry
+@inject ToastService Toast
+
+<PageTitle>Registries - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
+
+<div class="k-topbar">
+    <h1>Registries</h1>
+    <button class="k-btn k-btn-primary" @onclick="ShowAddForm">Add Registry</button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (showForm)
+    {
+        <div class="k-card" style="margin-bottom: 1.5rem;">
+            <div class="k-card-header">@(editing is not null ? "Edit Registry" : "Add Registry")</div>
+            <div class="k-card-body">
+                <div style="margin-bottom: 0.75rem;">
+                    <label class="k-form-label">Type</label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        @foreach (var t in Enum.GetValues<RegistryType>())
+                        {
+                            <button class="k-btn @(formType == t ? "k-btn-primary" : "")" @onclick="() => SetType(t)">@GetTypeName(t)</button>
+                        }
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 700px;">
+                    <div>
+                        <label class="k-form-label">Display Name</label>
+                        <input class="k-form-input" type="text" placeholder="My Registry" @bind="formName" />
+                    </div>
+                    @if (formType != RegistryType.DockerHub)
+                    {
+                        <div>
+                            <label class="k-form-label">URL</label>
+                            <input class="k-form-input" type="text" placeholder="@GetUrlPlaceholder()" @bind="formUrl" />
+                        </div>
+                    }
+                    @if (formType == RegistryType.DockerHub)
+                    {
+                        <div>
+                            <label class="k-form-label">Namespace (user/org)</label>
+                            <input class="k-form-input" type="text" placeholder="library" @bind="formNamespace" />
+                        </div>
+                    }
+                    <div>
+                        <label class="k-form-label">Username</label>
+                        <input class="k-form-input" type="text" placeholder="@GetUserPlaceholder()" @bind="formUsername" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Password / Token</label>
+                        <input class="k-form-input" type="password" placeholder="Access token or password" @bind="formPassword" />
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveRegistry" disabled="@(string.IsNullOrWhiteSpace(formName))">Save</button>
+                    <button class="k-btn" @onclick="TestConnection" disabled="@testing">@(testing ? "Testing..." : "Test Connection")</button>
+                    <button class="k-btn" @onclick="CancelForm">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (registries.Count == 0 && !showForm)
+    {
+        <div class="k-card">
+            <div class="k-card-body" style="text-align: center; padding: 3rem; color: var(--k-text-muted);">
+                No registries configured. Click <strong>Add Registry</strong> to connect to a Docker registry.
+            </div>
+        </div>
+    }
+
+    @foreach (var reg in registries)
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span>@reg.Name</span>
+                    <span class="k-badge" style="font-size: 0.7rem;">@GetTypeName(reg.Type)</span>
+                </div>
+                <div class="k-btn-group">
+                    <a href="/registries/@reg.Id/browse" class="k-btn k-btn-primary" style="text-decoration: none;">Browse</a>
+                    <button class="k-btn" @onclick="() => EditRegistry(reg)">Edit</button>
+                    <button class="k-btn k-btn-danger" @onclick="() => RequestDelete(reg)">Delete</button>
+                </div>
+            </div>
+            <div class="k-card-body">
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.85rem;">
+                    @if (reg.Type != RegistryType.DockerHub)
+                    {
+                        <span style="color: var(--k-text-muted);">URL</span>
+                        <span style="font-family: var(--k-font-mono);">@reg.Url</span>
+                    }
+                    @if (!string.IsNullOrEmpty(reg.Username))
+                    {
+                        <span style="color: var(--k-text-muted);">Username</span>
+                        <span style="font-family: var(--k-font-mono);">@reg.Username</span>
+                    }
+                    @if (reg.Type == RegistryType.DockerHub && !string.IsNullOrEmpty(reg.Namespace))
+                    {
+                        <span style="color: var(--k-text-muted);">Namespace</span>
+                        <span style="font-family: var(--k-font-mono);">@reg.Namespace</span>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<RegistryConfig> registries = [];
+    private string? error;
+    private bool showForm;
+    private RegistryConfig? editing;
+    private bool testing;
+
+    // Form fields
+    private string formName = "", formUrl = "", formUsername = "", formPassword = "", formNamespace = "";
+    private RegistryType formType = RegistryType.DockerHub;
+
+    // Confirm
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? confirmCallback;
+
+    protected override void OnInitialized()
+    {
+        registries = Settings.GetRegistries();
+    }
+
+    private void ShowAddForm()
+    {
+        editing = null;
+        formName = ""; formUrl = ""; formUsername = ""; formPassword = ""; formNamespace = "";
+        formType = RegistryType.DockerHub;
+        showForm = true;
+    }
+
+    private void EditRegistry(RegistryConfig reg)
+    {
+        editing = reg;
+        formName = reg.Name; formUrl = reg.Url; formUsername = reg.Username;
+        formPassword = ""; formNamespace = reg.Namespace; formType = reg.Type;
+        showForm = true;
+    }
+
+    private void CancelForm() { showForm = false; editing = null; }
+
+    private void SetType(RegistryType type)
+    {
+        formType = type;
+        formUrl = type switch
+        {
+            RegistryType.GitLab => "https://registry.gitlab.com",
+            RegistryType.Acr => formUrl,
+            RegistryType.Gcr => "https://gcr.io",
+            _ => formUrl
+        };
+    }
+
+    private void SaveRegistry()
+    {
+        var config = editing ?? new RegistryConfig();
+        config.Name = formName.Trim();
+        config.Type = formType;
+        config.Url = formUrl.Trim();
+        config.Username = formUsername.Trim();
+        config.Namespace = formNamespace.Trim();
+
+        Settings.SaveRegistry(config, string.IsNullOrEmpty(formPassword) ? null : formPassword);
+        registries = Settings.GetRegistries();
+        showForm = false;
+        editing = null;
+        Toast.Success($"Registry '{config.Name}' saved");
+    }
+
+    private async Task TestConnection()
+    {
+        testing = true;
+        try
+        {
+            var config = new RegistryConfig
+            {
+                Type = formType, Url = formUrl.Trim(), Username = formUsername.Trim(), Namespace = formNamespace.Trim()
+            };
+            if (!string.IsNullOrEmpty(formPassword))
+                config.EncryptedPassword = ""; // Will use plain for test
+
+            // For test, we need to temporarily handle auth differently
+            var ok = await Registry.TestConnectionAsync(config);
+            if (ok) Toast.Success("Connection successful!");
+            else Toast.Error("Connection failed");
+        }
+        catch (Exception ex) { Toast.Error($"Test failed: {ex.Message}"); }
+        testing = false;
+    }
+
+    private void RequestDelete(RegistryConfig reg)
+    {
+        confirmTitle = "Delete Registry";
+        confirmMessage = $"Delete registry '{reg.Name}'?";
+        confirmBtnText = "Delete";
+        confirmCallback = () =>
+        {
+            Settings.DeleteRegistry(reg.Id);
+            registries = Settings.GetRegistries();
+            Toast.Success($"Registry '{reg.Name}' deleted");
+            return Task.CompletedTask;
+        };
+        confirmVisible = true;
+    }
+
+    private async Task ConfirmAction() { confirmVisible = false; if (confirmCallback is not null) await confirmCallback(); }
+    private void CancelConfirm() { confirmVisible = false; }
+
+    private static string GetTypeName(RegistryType type) => type switch
+    {
+        RegistryType.DockerHub => "Docker Hub",
+        RegistryType.GitLab => "GitLab",
+        RegistryType.Acr => "Azure ACR",
+        RegistryType.Gcr => "Google GCR",
+        RegistryType.Custom => "Custom",
+        _ => type.ToString()
+    };
+
+    private string GetUrlPlaceholder() => formType switch
+    {
+        RegistryType.GitLab => "https://registry.gitlab.com",
+        RegistryType.Acr => "https://myregistry.azurecr.io",
+        RegistryType.Gcr => "https://gcr.io",
+        _ => "https://registry.example.com"
+    };
+
+    private string GetUserPlaceholder() => formType switch
+    {
+        RegistryType.Gcr => "_json_key",
+        _ => "username"
+    };
+}

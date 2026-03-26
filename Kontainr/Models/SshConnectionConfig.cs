@@ -19,6 +19,8 @@ public class AppSettings
     public HashSet<string> FavoriteContainerNames { get; set; } = [];
     public WebhookConfig Webhook { get; set; } = new();
     public List<ScheduledRestart> ScheduledRestarts { get; set; } = [];
+    public List<GitStackConfig> GitStacks { get; set; } = [];
+    public List<RegistryConfig> Registries { get; set; } = [];
 }
 
 public class WebhookConfig

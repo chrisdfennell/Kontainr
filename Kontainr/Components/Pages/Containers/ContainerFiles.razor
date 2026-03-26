@@ -1,0 +1,278 @@
+@page "/containers/{ContainerId}/files"
+@page "/containers/{ContainerId}/files/{**CurrentPath}"
+@rendermode InteractiveServer
+@inject ContainerFileService FileService
+@inject DockerService Docker
+@inject ToastService Toast
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Files - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/containers/@ContainerId" class="k-btn" style="text-decoration: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back
+        </a>
+        <h1>Files &mdash; @containerName</h1>
+    </div>
+    <div class="k-btn-group">
+        <label class="k-btn" style="cursor: pointer;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload
+            <InputFile OnChange="HandleUpload" style="display: none;" />
+        </label>
+        <button class="k-btn" @onclick="ShowCreateDirDialog">New Folder</button>
+    </div>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    <div class="k-card">
+        <div class="k-card-header">
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--k-font-mono); font-size: 0.85rem;">
+                <a href="@($"/containers/{ContainerId}/files")" style="color: var(--k-link); text-decoration: none; cursor: pointer;">/</a>
+                @foreach (var seg in PathSegments)
+                {
+                    <span style="color: var(--k-text-muted);">/</span>
+                    <a href="@($"/containers/{ContainerId}/files/{seg.Value}")" style="color: var(--k-link); text-decoration: none; cursor: pointer;">@seg.Key</a>
+                }
+            </div>
+        </div>
+
+        @if (loading)
+        {
+            <div class="k-card-body"><div class="k-spinner">Loading...</div></div>
+        }
+        else
+        {
+            <table class="k-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="width: 100px;">Size</th>
+                        <th style="width: 120px;">Permissions</th>
+                        <th style="width: 100px;">Owner</th>
+                        <th style="width: 160px;">Modified</th>
+                        <th style="width: 80px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (ResolvedPath != "/")
+                    {
+                        <tr @onclick="NavigateUp" style="cursor: pointer;" class="k-table-row-hover">
+                            <td colspan="6">
+                                <span style="color: var(--k-text-muted); margin-right: 0.5rem;">&#128193;</span>
+                                <span>..</span>
+                            </td>
+                        </tr>
+                    }
+                    @foreach (var entry in entries)
+                    {
+                        <tr @onclick="() => OnEntryClick(entry)" style="cursor: @(entry.IsDirectory ? "pointer" : "default");" class="k-table-row-hover">
+                            <td>
+                                <span style="margin-right: 0.5rem;">@GetIcon(entry)</span>
+                                <span style="font-family: var(--k-font-mono); font-size: 0.85rem;">@entry.Name</span>
+                                @if (entry.IsSymlink && !string.IsNullOrEmpty(entry.SymlinkTarget))
+                                {
+                                    <span style="color: var(--k-text-muted); font-size: 0.8rem;"> &rarr; @entry.SymlinkTarget</span>
+                                }
+                            </td>
+                            <td style="font-family: var(--k-font-mono); font-size: 0.8rem; color: var(--k-text-muted);">@(entry.IsDirectory ? "-" : FormatSize(entry.Size))</td>
+                            <td style="font-family: var(--k-font-mono); font-size: 0.8rem; color: var(--k-text-muted);">@entry.Permissions</td>
+                            <td style="font-size: 0.8rem; color: var(--k-text-muted);">@entry.Owner</td>
+                            <td style="font-size: 0.8rem; color: var(--k-text-muted);">@entry.Modified</td>
+                            <td>
+                                <div class="k-btn-group" style="justify-content: flex-end;">
+                                    @if (!entry.IsDirectory)
+                                    {
+                                        <button class="k-btn" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;" @onclick="() => DownloadFile(entry)" @onclick:stopPropagation="true">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                        </button>
+                                    }
+                                    <button class="k-btn k-btn-danger" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;" @onclick="() => DeleteEntry(entry)" @onclick:stopPropagation="true">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14H7L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @if (entries.Count == 0)
+                    {
+                        <tr><td colspan="6" style="text-align: center; color: var(--k-text-muted); padding: 2rem;">Empty directory</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    @if (showNewDir)
+    {
+        <div class="k-card" style="margin-top: 1rem; max-width: 400px;">
+            <div class="k-card-header">New Folder</div>
+            <div class="k-card-body">
+                <div style="display: flex; gap: 0.5rem;">
+                    <input class="k-form-input" type="text" placeholder="Folder name" @bind="newDirName" />
+                    <button class="k-btn k-btn-primary" @onclick="CreateDirectory" disabled="@(string.IsNullOrWhiteSpace(newDirName))">Create</button>
+                    <button class="k-btn" @onclick="() => showNewDir = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "";
+    [Parameter] public string? CurrentPath { get; set; }
+
+    private string ResolvedPath => "/" + (CurrentPath?.Trim('/') ?? "");
+    private string containerName = "";
+    private List<FileEntry> entries = [];
+    private bool loading = true;
+    private string? error;
+    private bool showNewDir;
+    private string newDirName = "";
+
+    private List<KeyValuePair<string, string>> PathSegments
+    {
+        get
+        {
+            var path = ResolvedPath.Trim('/');
+            if (string.IsNullOrEmpty(path)) return [];
+            var parts = path.Split('/');
+            var result = new List<KeyValuePair<string, string>>();
+            for (int i = 0; i < parts.Length; i++)
+                result.Add(new KeyValuePair<string, string>(parts[i], string.Join("/", parts[..(i + 1)])));
+            return result;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadFiles();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var inspect = await Docker.InspectContainerAsync(ContainerId);
+            containerName = inspect.Name.TrimStart('/');
+        }
+        catch { containerName = ContainerId.Length > 12 ? ContainerId[..12] : ContainerId; }
+    }
+
+    private async Task LoadFiles()
+    {
+        loading = true;
+        error = null;
+        try
+        {
+            entries = await FileService.ListDirectoryAsync(ContainerId, ResolvedPath);
+            entries = entries.OrderByDescending(e => e.IsDirectory).ThenBy(e => e.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to list directory: {ex.Message}";
+            entries = [];
+        }
+        loading = false;
+    }
+
+    private void OnEntryClick(FileEntry entry)
+    {
+        if (entry.IsDirectory)
+        {
+            var newPath = ResolvedPath.TrimEnd('/') + "/" + entry.Name;
+            Nav.NavigateTo($"/containers/{ContainerId}/files{newPath}");
+        }
+    }
+
+    private void NavigateUp()
+    {
+        var parent = ResolvedPath.TrimEnd('/');
+        var lastSlash = parent.LastIndexOf('/');
+        var newPath = lastSlash > 0 ? parent[..lastSlash] : "/";
+        Nav.NavigateTo($"/containers/{ContainerId}/files{newPath}");
+    }
+
+    private async Task DownloadFile(FileEntry entry)
+    {
+        try
+        {
+            var filePath = ResolvedPath.TrimEnd('/') + "/" + entry.Name;
+            var result = await FileService.DownloadFileAsync(ContainerId, filePath);
+            using var ms = new MemoryStream();
+            await result.stream.CopyToAsync(ms);
+            await result.stream.DisposeAsync();
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            await JS.InvokeVoidAsync("kontainr.downloadBlob", result.fileName + ".tar", base64, "application/x-tar");
+            Toast.Success($"Downloaded {entry.Name}");
+        }
+        catch (Exception ex) { Toast.Error($"Download failed: {ex.Message}"); }
+    }
+
+    private async Task DeleteEntry(FileEntry entry)
+    {
+        try
+        {
+            var fullPath = ResolvedPath.TrimEnd('/') + "/" + entry.Name;
+            await FileService.DeleteAsync(ContainerId, fullPath);
+            Toast.Success($"Deleted {entry.Name}");
+            await LoadFiles();
+            StateHasChanged();
+        }
+        catch (Exception ex) { Toast.Error($"Delete failed: {ex.Message}"); }
+    }
+
+    private async Task HandleUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            await FileService.UploadFileAsync(ContainerId, ResolvedPath, file.Name, stream);
+            Toast.Success($"Uploaded {file.Name}");
+            await LoadFiles();
+            StateHasChanged();
+        }
+        catch (Exception ex) { Toast.Error($"Upload failed: {ex.Message}"); }
+    }
+
+    private void ShowCreateDirDialog() { showNewDir = true; newDirName = ""; }
+
+    private async Task CreateDirectory()
+    {
+        if (string.IsNullOrWhiteSpace(newDirName)) return;
+        try
+        {
+            var fullPath = ResolvedPath.TrimEnd('/') + "/" + newDirName.Trim();
+            await FileService.CreateDirectoryAsync(ContainerId, fullPath);
+            Toast.Success($"Created folder {newDirName}");
+            showNewDir = false;
+            await LoadFiles();
+            StateHasChanged();
+        }
+        catch (Exception ex) { Toast.Error($"Create folder failed: {ex.Message}"); }
+    }
+
+    private static string GetIcon(FileEntry entry)
+    {
+        if (entry.IsDirectory) return "\U0001F4C1";
+        if (entry.IsSymlink) return "\U0001F517";
+        return "\U0001F4C4";
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+        if (bytes >= 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes} B";
+    }
+}
