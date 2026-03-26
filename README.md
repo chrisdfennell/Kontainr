@@ -32,7 +32,8 @@
 - **Container Config Editor** — edit env vars, ports, restart policy, network and recreate with new config
 - **Container Clone** — duplicate any container's config as a new container with one click
 - **One-Click Update** — pull latest image and recreate container with the same configuration
-- **Update Checker** — scan all containers for newer registry images
+- **Self-Update** — Kontainr can update its own container via a temporary updater sidecar, with automatic page reload
+- **Update Checker** — scan all containers for newer registry images, with "self" badge identifying Kontainr's own container
 - **Scheduled Restarts** — cron-style scheduled container restarts (daily, weekly, or interval-based)
 - **Docker Compose Deploy** — upload or paste a `docker-compose.yml` and deploy stacks from the UI
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
@@ -56,6 +57,7 @@
 - **Image Inspector** — view layers, entrypoint, env vars, exposed ports, volumes, architecture
 - **Volumes** — list, create, remove, prune unused volumes
 - **Networks** — list, create (bridge/host/overlay/macvlan), remove, prune unused networks
+- **Network Topology** — interactive Cytoscape.js graph showing containers connected to their networks with port mappings, color-coded edges, hover highlighting, and multiple layout options
 - **System Info** — Docker version, CPU/RAM, storage driver, kernel, full system prune
 
 ### App Templates
@@ -184,6 +186,7 @@ docker build -t kontainr -f Kontainr/Dockerfile Kontainr/
 - **Docker.DotNet** — Docker Engine API client
 - **SSH.NET** — SSH client for remote terminal
 - **xterm.js** — interactive terminal emulator
+- **Cytoscape.js** — network topology graph visualization
 - **ASP.NET Data Protection** — encrypted credential storage
 - **Bootstrap 5** — base CSS with custom dark theme
 
