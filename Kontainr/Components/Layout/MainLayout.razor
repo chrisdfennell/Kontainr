@@ -9,7 +9,8 @@
         <div class="k-global-bar">
             <div class="k-global-search-wrap">
                 <input id="k-global-search-input" class="k-global-search" type="text"
-                       placeholder="Search containers, images, volumes..." />
+                       placeholder="Search containers, images, volumes..."
+                       onkeydown="if(event.key==='Enter'){var q=this.value.trim();if(q){window.location.href='/search?q='+encodeURIComponent(q);this.value='';}}" />
             </div>
             <button class="k-theme-toggle" onclick="kontainr.toggleTheme()" title="Toggle theme">
                 <svg class="k-theme-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -28,6 +29,21 @@
     <span class="dismiss">x</span>
 </div>
 
+<script suppress-error="BL9992">
+    // Apply saved theme immediately on every page load
+    (function() {
+        var theme = '@Settings.GetTheme()';
+        document.documentElement.setAttribute('data-theme', theme);
+        if (theme === 'light') document.body.classList.add('k-light');
+        else document.body.classList.remove('k-light');
+        // Toggle icons
+        var sun = document.querySelector('.k-theme-sun');
+        var moon = document.querySelector('.k-theme-moon');
+        if (sun) sun.style.display = theme === 'dark' ? '' : 'none';
+        if (moon) moon.style.display = theme === 'light' ? '' : 'none';
+    })();
+</script>
+
 @code {
     private DotNetObjectReference<MainLayout>? dotnetRef;
 
@@ -35,11 +51,8 @@
     {
         if (firstRender)
         {
-            var theme = Settings.GetTheme();
             dotnetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("kontainr.registerThemeRef", dotnetRef);
-            await JS.InvokeVoidAsync("kontainr.setTheme", theme);
-            await JS.InvokeVoidAsync("kontainr.initGlobalSearch");
         }
     }
 
