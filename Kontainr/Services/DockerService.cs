@@ -153,6 +153,20 @@ public class DockerService : IDisposable
         catch { /* silently ignore resize failures */ }
     }
 
+    // ── Container Archive (file browser) ────────────────────────
+
+    public async Task<GetArchiveFromContainerResponse> GetArchiveAsync(string id, string path)
+    {
+        return await _client.Containers.GetArchiveFromContainerAsync(id,
+            new GetArchiveFromContainerParameters { Path = path }, false);
+    }
+
+    public async Task ExtractArchiveAsync(string id, string path, Stream tarStream)
+    {
+        await _client.Containers.ExtractArchiveToContainerAsync(id,
+            new ContainerPathStatParameters { Path = path }, tarStream);
+    }
+
     // ── Images ───────────────────────────────────────────────────
 
     public async Task<IList<ImagesListResponse>> GetImagesAsync()
@@ -167,6 +181,11 @@ public class DockerService : IDisposable
 
     public async Task PullImageAsync(string image, string tag, Action<string> onProgress, CancellationToken ct = default)
     {
+        await PullImageAsync(image, tag, onProgress, null, ct);
+    }
+
+    public async Task PullImageAsync(string image, string tag, Action<string> onProgress, AuthConfig? auth, CancellationToken ct = default)
+    {
         var progress = new Progress<JSONMessage>(msg =>
         {
             var status = msg.Status ?? "";
@@ -177,7 +196,7 @@ public class DockerService : IDisposable
 
         await _client.Images.CreateImageAsync(
             new ImagesCreateParameters { FromImage = image, Tag = tag },
-            null, progress, ct);
+            auth, progress, ct);
     }
 
     // ── Create Container ──────────────────────────────────────────

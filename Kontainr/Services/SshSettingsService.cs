@@ -179,6 +179,90 @@ public class SshSettingsService
         catch { return ""; }
     }
 
+    // ── Git Stacks ──────────────────────────────────────────────
+
+    public List<GitStackConfig> GetGitStacks()
+    {
+        lock (_lock) { return Load().GitStacks.ToList(); }
+    }
+
+    public GitStackConfig? GetGitStack(string id)
+    {
+        lock (_lock) { return Load().GitStacks.FirstOrDefault(s => s.Id == id); }
+    }
+
+    public void SaveGitStack(GitStackConfig config, string? plainPassword = null)
+    {
+        lock (_lock)
+        {
+            var settings = Load();
+            var existing = settings.GitStacks.FirstOrDefault(s => s.Id == config.Id);
+
+            if (plainPassword is not null)
+                config.EncryptedGitPassword = _protector.Protect(plainPassword);
+            else if (existing is not null)
+                config.EncryptedGitPassword = existing.EncryptedGitPassword;
+
+            if (existing is not null)
+                settings.GitStacks.Remove(existing);
+
+            settings.GitStacks.Add(config);
+            Save(settings);
+        }
+    }
+
+    public void DeleteGitStack(string id)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.GitStacks.RemoveAll(x => x.Id == id);
+            Save(s);
+        }
+    }
+
+    // ── Registries ─────────────────────────────────────────────
+
+    public List<RegistryConfig> GetRegistries()
+    {
+        lock (_lock) { return Load().Registries.ToList(); }
+    }
+
+    public RegistryConfig? GetRegistry(string id)
+    {
+        lock (_lock) { return Load().Registries.FirstOrDefault(r => r.Id == id); }
+    }
+
+    public void SaveRegistry(RegistryConfig config, string? plainPassword = null)
+    {
+        lock (_lock)
+        {
+            var settings = Load();
+            var existing = settings.Registries.FirstOrDefault(r => r.Id == config.Id);
+
+            if (plainPassword is not null)
+                config.EncryptedPassword = _protector.Protect(plainPassword);
+            else if (existing is not null)
+                config.EncryptedPassword = existing.EncryptedPassword;
+
+            if (existing is not null)
+                settings.Registries.Remove(existing);
+
+            settings.Registries.Add(config);
+            Save(settings);
+        }
+    }
+
+    public void DeleteRegistry(string id)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.Registries.RemoveAll(r => r.Id == id);
+            Save(s);
+        }
+    }
+
     // ── Persistence ──────────────────────────────────────────────
 
     private AppSettings Load()

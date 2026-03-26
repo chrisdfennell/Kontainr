@@ -1,0 +1,394 @@
+@page "/stacks"
+@rendermode InteractiveServer
+@inject SshSettingsService Settings
+@inject DockerService Docker
+@inject ToastService Toast
+
+<PageTitle>Git Stacks - Kontainr</PageTitle>
+
+<ConfirmDialog Title="@confirmTitle" Message="@confirmMessage" ConfirmText="@confirmBtnText"
+               Visible="@confirmVisible" OnConfirm="ConfirmAction" OnCancel="CancelConfirm" />
+
+<div class="k-topbar">
+    <h1>Git Stacks</h1>
+    <button class="k-btn k-btn-primary" @onclick="ShowAddForm">Add Stack</button>
+</div>
+
+<div class="k-content">
+    @if (error is not null)
+    {
+        <div class="k-error">@error</div>
+    }
+
+    @if (showForm)
+    {
+        <div class="k-card" style="margin-bottom: 1.5rem;">
+            <div class="k-card-header">@(editing is not null ? "Edit Stack" : "Add Git Stack")</div>
+            <div class="k-card-body">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 700px;">
+                    <div>
+                        <label class="k-form-label">Name</label>
+                        <input class="k-form-input" type="text" placeholder="My Stack" @bind="formName" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Project Name</label>
+                        <input class="k-form-input" type="text" placeholder="my-stack (for docker compose -p)" @bind="formProject" />
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <label class="k-form-label">Git URL</label>
+                        <input class="k-form-input" type="text" placeholder="https://github.com/user/repo.git" @bind="formGitUrl" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Branch</label>
+                        <input class="k-form-input" type="text" placeholder="main" @bind="formBranch" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Compose File Path</label>
+                        <input class="k-form-input" type="text" placeholder="docker-compose.yml" @bind="formComposePath" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Git Username (optional)</label>
+                        <input class="k-form-input" type="text" placeholder="username" @bind="formGitUser" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Git Password / Token (optional)</label>
+                        <input class="k-form-input" type="password" placeholder="token or password" @bind="formGitPassword" />
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem;">
+                    <label class="k-form-label">Environment Variables (KEY=VALUE, one per line)</label>
+                    <textarea class="k-form-input" rows="3" placeholder="DB_HOST=postgres&#10;DB_PORT=5432" @bind="formEnvVars" style="font-family: var(--k-font-mono); font-size: 0.85rem;"></textarea>
+                </div>
+
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveStack" disabled="@(string.IsNullOrWhiteSpace(formName) || string.IsNullOrWhiteSpace(formGitUrl))">Save</button>
+                    <button class="k-btn" @onclick="CancelForm">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(deployOutput))
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">
+                Output
+                <button class="k-btn" @onclick="() => deployOutput = string.Empty" style="font-size: 0.75rem;">Clear</button>
+            </div>
+            <div class="k-log-viewer" style="max-height: 300px;">@deployOutput</div>
+        </div>
+    }
+
+    @if (stacks.Count == 0 && !showForm)
+    {
+        <div class="k-card">
+            <div class="k-card-body" style="text-align: center; padding: 3rem; color: var(--k-text-muted);">
+                No Git stacks configured. Click <strong>Add Stack</strong> to deploy from a Git repository.
+            </div>
+        </div>
+    }
+
+    @foreach (var stack in stacks)
+    {
+        <div class="k-card" style="margin-bottom: 1rem;">
+            <div class="k-card-header">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span>@stack.Name</span>
+                    @if (stack.LastDeployed.HasValue)
+                    {
+                        <span class="k-badge k-badge-success" style="font-size: 0.7rem;">Deployed @stack.LastDeployed.Value.ToString("g")</span>
+                    }
+                    else
+                    {
+                        <span class="k-badge" style="font-size: 0.7rem;">Not deployed</span>
+                    }
+                </div>
+                <div class="k-btn-group">
+                    <button class="k-btn k-btn-primary" @onclick="() => DeployStack(stack)" disabled="@deploying">
+                        @(deploying && deployingId == stack.Id ? "Deploying..." : stack.LastDeployed.HasValue ? "Update" : "Deploy")
+                    </button>
+                    @if (stack.LastDeployed.HasValue)
+                    {
+                        <button class="k-btn k-btn-danger" @onclick="() => RequestTearDown(stack)" disabled="@deploying">Tear Down</button>
+                    }
+                    <button class="k-btn" @onclick="() => EditStack(stack)">Edit</button>
+                    <button class="k-btn k-btn-danger" @onclick="() => RequestDelete(stack)" disabled="@deploying">Delete</button>
+                </div>
+            </div>
+            <div class="k-card-body">
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.85rem;">
+                    <span style="color: var(--k-text-muted);">Repository</span>
+                    <span style="font-family: var(--k-font-mono);">@stack.GitUrl</span>
+                    <span style="color: var(--k-text-muted);">Branch</span>
+                    <span style="font-family: var(--k-font-mono);">@stack.Branch</span>
+                    <span style="color: var(--k-text-muted);">Compose File</span>
+                    <span style="font-family: var(--k-font-mono);">@stack.ComposePath</span>
+                    @if (!string.IsNullOrEmpty(stack.ProjectName))
+                    {
+                        <span style="color: var(--k-text-muted);">Project</span>
+                        <span style="font-family: var(--k-font-mono);">@stack.ProjectName</span>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<GitStackConfig> stacks = [];
+    private string? error;
+    private bool showForm;
+    private GitStackConfig? editing;
+
+    // Form fields
+    private string formName = "", formGitUrl = "", formBranch = "main", formComposePath = "docker-compose.yml";
+    private string formProject = "", formGitUser = "", formGitPassword = "", formEnvVars = "";
+
+    // Deploy state
+    private bool deploying;
+    private string deployingId = "";
+    private string deployOutput = "";
+
+    // Confirm dialog
+    private bool confirmVisible;
+    private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
+    private Func<Task>? confirmCallback;
+
+    protected override void OnInitialized()
+    {
+        stacks = Settings.GetGitStacks();
+    }
+
+    private void ShowAddForm()
+    {
+        editing = null;
+        formName = ""; formGitUrl = ""; formBranch = "main"; formComposePath = "docker-compose.yml";
+        formProject = ""; formGitUser = ""; formGitPassword = ""; formEnvVars = "";
+        showForm = true;
+    }
+
+    private void EditStack(GitStackConfig stack)
+    {
+        editing = stack;
+        formName = stack.Name; formGitUrl = stack.GitUrl; formBranch = stack.Branch;
+        formComposePath = stack.ComposePath; formProject = stack.ProjectName;
+        formGitUser = stack.GitUsername; formGitPassword = "";
+        formEnvVars = string.Join("\n", stack.EnvVars.Select(kv => $"{kv.Key}={kv.Value}"));
+        showForm = true;
+    }
+
+    private void CancelForm() { showForm = false; editing = null; }
+
+    private void SaveStack()
+    {
+        var config = editing ?? new GitStackConfig();
+        config.Name = formName.Trim();
+        config.GitUrl = formGitUrl.Trim();
+        config.Branch = string.IsNullOrWhiteSpace(formBranch) ? "main" : formBranch.Trim();
+        config.ComposePath = string.IsNullOrWhiteSpace(formComposePath) ? "docker-compose.yml" : formComposePath.Trim();
+        config.ProjectName = formProject.Trim();
+        config.GitUsername = formGitUser.Trim();
+        config.EnvVars = ParseEnvVars(formEnvVars);
+        if (editing is not null) config.LastDeployed = editing.LastDeployed;
+
+        Settings.SaveGitStack(config, string.IsNullOrEmpty(formGitPassword) ? null : formGitPassword);
+        stacks = Settings.GetGitStacks();
+        showForm = false;
+        editing = null;
+        Toast.Success($"Stack '{config.Name}' saved");
+    }
+
+    private async Task DeployStack(GitStackConfig stack)
+    {
+        deploying = true;
+        deployingId = stack.Id;
+        deployOutput = "";
+        error = null;
+
+        try
+        {
+            var password = string.IsNullOrEmpty(stack.EncryptedGitPassword) ? "" : Settings.DecryptPassword(stack.EncryptedGitPassword);
+            var gitUrl = stack.GitUrl;
+            if (!string.IsNullOrEmpty(stack.GitUsername) && !string.IsNullOrEmpty(password) && gitUrl.StartsWith("https://"))
+            {
+                var uri = new Uri(gitUrl);
+                gitUrl = $"https://{Uri.EscapeDataString(stack.GitUsername)}:{Uri.EscapeDataString(password)}@{uri.Host}{uri.PathAndQuery}";
+            }
+
+            var composeDirName = Path.GetDirectoryName(stack.ComposePath)?.Replace("\\", "/") ?? "";
+            var composeFileName = Path.GetFileName(stack.ComposePath);
+            var projectFlag = string.IsNullOrWhiteSpace(stack.ProjectName) ? "" : $"-p {stack.ProjectName}";
+
+            var envFlags = "";
+            foreach (var kv in stack.EnvVars)
+                envFlags += $" -e '{kv.Key}={kv.Value}'";
+
+            var cdPart = string.IsNullOrEmpty(composeDirName) ? "" : $" && cd {composeDirName}";
+
+            var script = $"""
+                rm -rf /workspace && git clone --depth 1 --branch {stack.Branch} '{gitUrl}' /workspace{cdPart} && cd /workspace{cdPart} && docker compose {projectFlag} -f {composeFileName} up -d
+                """;
+
+            // Determine the Docker socket path
+            var socketBind = OperatingSystem.IsWindows()
+                ? "//./pipe/docker_engine://./pipe/docker_engine"
+                : "/var/run/docker.sock:/var/run/docker.sock";
+
+            AppendOutput($"Deploying {stack.Name} from {stack.GitUrl} ({stack.Branch})...");
+
+            // Pull docker:cli if needed
+            try
+            {
+                await Docker.PullImageAsync("docker", "cli", msg => { }, default);
+            }
+            catch { /* may already exist */ }
+
+            var createParams = new Docker.DotNet.Models.CreateContainerParameters
+            {
+                Image = "docker:cli",
+                Name = $"kontainr-git-deploy-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                Cmd = ["sh", "-c", script],
+                HostConfig = new Docker.DotNet.Models.HostConfig
+                {
+                    Binds = [socketBind],
+                    AutoRemove = true,
+                    NetworkMode = "host"
+                }
+            };
+
+            foreach (var kv in stack.EnvVars)
+                createParams.Env ??= [];
+            if (stack.EnvVars.Count > 0)
+                createParams.Env = stack.EnvVars.Select(kv => $"{kv.Key}={kv.Value}").ToList();
+
+            var container = await Docker.CreateContainerAsync(createParams);
+            await Docker.StartContainerAsync(container.ID);
+
+            // Stream logs from deploy container
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            await Docker.StreamContainerLogsAsync(container.ID, 100, line =>
+            {
+                AppendOutput(line);
+                InvokeAsync(StateHasChanged);
+            }, cts.Token);
+
+            // Update last deployed timestamp
+            stack.LastDeployed = DateTime.Now;
+            Settings.SaveGitStack(stack);
+            stacks = Settings.GetGitStacks();
+
+            AppendOutput("Deploy complete!");
+            Toast.Success($"Stack '{stack.Name}' deployed");
+        }
+        catch (Exception ex)
+        {
+            AppendOutput($"Error: {ex.Message}");
+            Toast.Error($"Deploy failed: {ex.Message}");
+        }
+
+        deploying = false;
+        deployingId = "";
+        StateHasChanged();
+    }
+
+    private async Task TearDownStack(GitStackConfig stack)
+    {
+        deploying = true;
+        deployingId = stack.Id;
+        deployOutput = "";
+
+        try
+        {
+            var projectFlag = string.IsNullOrWhiteSpace(stack.ProjectName) ? "" : $"-p {stack.ProjectName}";
+            var script = $"docker compose {projectFlag} down --remove-orphans";
+
+            var socketBind = OperatingSystem.IsWindows()
+                ? "//./pipe/docker_engine://./pipe/docker_engine"
+                : "/var/run/docker.sock:/var/run/docker.sock";
+
+            AppendOutput($"Tearing down {stack.Name}...");
+
+            var createParams = new Docker.DotNet.Models.CreateContainerParameters
+            {
+                Image = "docker:cli",
+                Name = $"kontainr-git-teardown-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                Cmd = ["sh", "-c", script],
+                HostConfig = new Docker.DotNet.Models.HostConfig
+                {
+                    Binds = [socketBind],
+                    AutoRemove = true,
+                    NetworkMode = "host"
+                }
+            };
+
+            var container = await Docker.CreateContainerAsync(createParams);
+            await Docker.StartContainerAsync(container.ID);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await Docker.StreamContainerLogsAsync(container.ID, 100, line =>
+            {
+                AppendOutput(line);
+                InvokeAsync(StateHasChanged);
+            }, cts.Token);
+
+            stack.LastDeployed = null;
+            Settings.SaveGitStack(stack);
+            stacks = Settings.GetGitStacks();
+
+            AppendOutput("Tear down complete!");
+            Toast.Success($"Stack '{stack.Name}' torn down");
+        }
+        catch (Exception ex)
+        {
+            AppendOutput($"Error: {ex.Message}");
+            Toast.Error($"Tear down failed: {ex.Message}");
+        }
+
+        deploying = false;
+        deployingId = "";
+        StateHasChanged();
+    }
+
+    private void RequestTearDown(GitStackConfig stack)
+    {
+        confirmTitle = "Tear Down Stack";
+        confirmMessage = $"This will run 'docker compose down' for stack '{stack.Name}'. All containers in this stack will be stopped and removed.";
+        confirmBtnText = "Tear Down";
+        confirmCallback = () => TearDownStack(stack);
+        confirmVisible = true;
+    }
+
+    private void RequestDelete(GitStackConfig stack)
+    {
+        confirmTitle = "Delete Stack";
+        confirmMessage = $"Delete stack '{stack.Name}'? This removes the stack configuration but does not stop running containers.";
+        confirmBtnText = "Delete";
+        confirmCallback = () =>
+        {
+            Settings.DeleteGitStack(stack.Id);
+            stacks = Settings.GetGitStacks();
+            Toast.Success($"Stack '{stack.Name}' deleted");
+            return Task.CompletedTask;
+        };
+        confirmVisible = true;
+    }
+
+    private async Task ConfirmAction() { confirmVisible = false; if (confirmCallback is not null) await confirmCallback(); }
+    private void CancelConfirm() { confirmVisible = false; }
+
+    private void AppendOutput(string line) { deployOutput += line + "\n"; }
+
+    private static Dictionary<string, string> ParseEnvVars(string text)
+    {
+        var result = new Dictionary<string, string>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = line.IndexOf('=');
+            if (eq > 0)
+                result[line[..eq].Trim()] = line[(eq + 1)..].Trim();
+        }
+        return result;
+    }
+}
