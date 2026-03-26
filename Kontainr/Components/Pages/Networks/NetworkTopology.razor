@@ -93,9 +93,13 @@
         {
             var networks = await Docker.GetNetworksAsync();
             var containers = await Docker.GetContainersAsync(all: true);
-            var containerLookup = containers.ToDictionary(c => c.ID, c => c);
 
-            var elements = BuildElements(networks, containerLookup);
+            // Build network ID -> NetworkResponse lookup for subnet/driver info
+            var networkLookup = networks.ToDictionary(n => n.ID, n => n);
+            // Also map by name since container NetworkSettings uses network names
+            var networkByName = networks.ToDictionary(n => n.Name, n => n);
+
+            var elements = BuildElements(containers, networkLookup, networkByName);
             await JS.InvokeVoidAsync("kontainr.initTopology", "cy-topology", elements, dotnetRef);
         }
         catch (Exception ex)
@@ -107,125 +111,115 @@
         StateHasChanged();
     }
 
-    private List<object> BuildElements(IList<Docker.DotNet.Models.NetworkResponse> networks,
-        Dictionary<string, Docker.DotNet.Models.ContainerListResponse> containerLookup)
+    private List<object> BuildElements(
+        IList<Docker.DotNet.Models.ContainerListResponse> containers,
+        Dictionary<string, Docker.DotNet.Models.NetworkResponse> networkLookup,
+        Dictionary<string, Docker.DotNet.Models.NetworkResponse> networkByName)
     {
         var elements = new List<object>();
-        var addedContainers = new HashSet<string>();
-        var addedPorts = new HashSet<string>();
+        var addedNetworks = new HashSet<string>(); // track which networks we've added
         int runningCount = 0, stoppedCount = 0;
 
-        foreach (var net in networks)
+        foreach (var container in containers)
         {
-            // Network node
-            var subnet = net.IPAM?.Config?.FirstOrDefault()?.Subnet;
-            var netLabel = net.Name;
-            if (subnet is not null) netLabel += $"\n{subnet}";
-            netLabel += $"\n{net.Driver}";
-            var netNodeId = $"net-{net.ID[..12]}";
+            var name = container.Names.FirstOrDefault()?.TrimStart('/') ?? container.ID[..12];
+            var state = container.State;
+            var cNodeId = $"c-{container.ID[..12]}";
 
+            if (state == "running") runningCount++; else stoppedCount++;
+
+            // Container node
             elements.Add(new
             {
                 data = new
                 {
-                    id = netNodeId,
-                    label = netLabel,
-                    nodeType = "network",
-                    driver = net.Driver ?? "",
-                    color = "" // filled by JS
+                    id = cNodeId,
+                    label = name,
+                    nodeType = "container",
+                    status = state,
+                    containerId = container.ID
                 }
             });
 
-            // Container nodes connected to this network
-            if (net.Containers is not null)
+            // Port badge nodes
+            var ports = container.Ports?.Where(p => p.PublicPort > 0).ToList();
+            if (ports is not null)
             {
-                foreach (var (containerId, endpoint) in net.Containers)
+                foreach (var p in ports)
                 {
-                    var cNodeId = $"c-{containerId[..12]}";
-
-                    // Add container node (only once, even if in multiple networks)
-                    if (!addedContainers.Contains(containerId))
+                    var portNodeId = $"p-{container.ID[..12]}-{p.PublicPort}-{p.PrivatePort}";
+                    elements.Add(new
                     {
-                        addedContainers.Add(containerId);
-
-                        var name = endpoint.Name;
-                        var state = "exited";
-                        List<(ushort pub, ushort priv, string proto)>? ports = null;
-
-                        if (containerLookup.TryGetValue(containerId, out var container))
+                        data = new
                         {
-                            name = container.Names.FirstOrDefault()?.TrimStart('/') ?? name;
-                            state = container.State;
-                            ports = container.Ports?
-                                .Where(p => p.PublicPort > 0)
-                                .Select(p => (p.PublicPort, p.PrivatePort, p.Type))
-                                .ToList();
+                            id = portNodeId,
+                            label = $":{p.PublicPort} -> :{p.PrivatePort}/{p.Type}",
+                            nodeType = "port"
                         }
+                    });
+                    elements.Add(new
+                    {
+                        data = new
+                        {
+                            id = $"ep-{container.ID[..12]}-{p.PublicPort}",
+                            source = cNodeId,
+                            target = portNodeId,
+                            edgeType = "port",
+                            label = "",
+                            targetNetId = "",
+                            color = ""
+                        }
+                    });
+                }
+            }
 
-                        if (state == "running") runningCount++; else stoppedCount++;
+            // Network connections — use NetworkSettings.Networks from the container
+            var netSettings = container.NetworkSettings?.Networks;
+            if (netSettings is not null)
+            {
+                foreach (var (netName, endpoint) in netSettings)
+                {
+                    // Find the network's full info
+                    Docker.DotNet.Models.NetworkResponse? netInfo = null;
+                    networkByName.TryGetValue(netName, out netInfo);
+
+                    var netId = netInfo?.ID ?? netName;
+                    var netNodeId = $"net-{netId[..Math.Min(12, netId.Length)]}";
+
+                    // Add network node if not already added
+                    if (addedNetworks.Add(netId))
+                    {
+                        var subnet = netInfo?.IPAM?.Config?.FirstOrDefault()?.Subnet;
+                        var driver = netInfo?.Driver ?? "bridge";
+                        var netLabel = netName;
+                        if (subnet is not null) netLabel += $"\n{subnet}";
+                        netLabel += $"\n{driver}";
 
                         elements.Add(new
                         {
                             data = new
                             {
-                                id = cNodeId,
-                                label = name,
-                                nodeType = "container",
-                                status = state,
-                                containerId = containerId
+                                id = netNodeId,
+                                label = netLabel,
+                                nodeType = "network",
+                                driver = driver,
+                                color = "" // filled by JS
                             }
                         });
-
-                        // Port badge nodes (one per unique port mapping)
-                        if (ports is not null)
-                        {
-                            foreach (var (pub, priv, proto) in ports)
-                            {
-                                var portKey = $"{containerId[..12]}-{pub}-{priv}";
-                                if (addedPorts.Add(portKey))
-                                {
-                                    var portNodeId = $"p-{portKey}";
-                                    elements.Add(new
-                                    {
-                                        data = new
-                                        {
-                                            id = portNodeId,
-                                            label = $":{pub} -> :{priv}/{proto}",
-                                            nodeType = "port"
-                                        }
-                                    });
-                                    elements.Add(new
-                                    {
-                                        data = new
-                                        {
-                                            id = $"ep-{portKey}",
-                                            source = cNodeId,
-                                            target = portNodeId,
-                                            edgeType = "port",
-                                            label = "",
-                                            targetNetId = "",
-                                            color = ""
-                                        }
-                                    });
-                                }
-                            }
-                        }
                     }
 
-                    // Edge: container -> network (with IP label)
-                    var ip = endpoint.IPv4Address;
-                    if (!string.IsNullOrEmpty(ip) && ip.Contains('/'))
-                        ip = ip.Split('/')[0];
+                    // Edge: container -> network with IP label
+                    var ip = endpoint.IPAddress ?? "";
 
                     elements.Add(new
                     {
                         data = new
                         {
-                            id = $"e-{containerId[..12]}-{net.ID[..12]}",
+                            id = $"e-{container.ID[..12]}-{netId[..Math.Min(12, netId.Length)]}",
                             source = cNodeId,
                             target = netNodeId,
                             edgeType = "network",
-                            label = ip ?? "",
+                            label = ip,
                             targetNetId = netNodeId,
                             color = "" // filled by JS
                         }
@@ -234,7 +228,8 @@
             }
         }
 
-        stats = (networks.Count, runningCount, stoppedCount);
+        // Only count networks that have containers (the ones we actually added)
+        stats = (addedNetworks.Count, runningCount, stoppedCount);
         return elements;
     }
 
@@ -247,8 +242,9 @@
         {
             var networks = await Docker.GetNetworksAsync();
             var containers = await Docker.GetContainersAsync(all: true);
-            var containerLookup = containers.ToDictionary(c => c.ID, c => c);
-            var elements = BuildElements(networks, containerLookup);
+            var networkLookup = networks.ToDictionary(n => n.ID, n => n);
+            var networkByName = networks.ToDictionary(n => n.Name, n => n);
+            var elements = BuildElements(containers, networkLookup, networkByName);
             await JS.InvokeVoidAsync("kontainr.updateTopology", (object)elements);
         }
         catch (Exception ex)
@@ -273,7 +269,7 @@
     [JSInvokable]
     public void NavigateToContainer(string containerId)
     {
-        Nav.NavigateTo($"/containers/{containerId}");
+        InvokeAsync(() => Nav.NavigateTo($"/containers/{containerId}"));
     }
 
     public async ValueTask DisposeAsync()
