@@ -7,6 +7,7 @@
 @inject ToastService Toast
 @inject StatsHistoryService StatsHistory
 @inject MetricsQueryService MetricsQuery
+@inject SshSettingsService SshSettings
 @implements IDisposable
 
 <PageTitle>Container - Kontainr</PageTitle>
@@ -122,7 +123,7 @@
                 }
                 <div class="k-stat-card">
                     <div class="k-stat-label">Created</div>
-                    <div class="k-stat-value" style="font-size: 1.1rem;">@inspect.Created.ToLocalTime().ToString("g")</div>
+                    <div class="k-stat-value" style="font-size: 1.1rem;">@TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(inspect.Created, DateTimeKind.Utc), SshSettings.GetTimeZone()).ToString("g")</div>
                 </div>
                 <div class="k-stat-card">
                     <div class="k-stat-label">Restart Count</div>
@@ -480,7 +481,9 @@
         {
             try
             {
-                var timestamps = metricsData.Select(m => m.Timestamp.ToLocalTime().ToString("HH:mm")).ToArray();
+                var tz = SshSettings.GetTimeZone();
+                var timestamps = metricsData.Select(m => TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(m.Timestamp, DateTimeKind.Utc), tz).ToString("HH:mm")).ToArray();
                 await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-cpu",
                     metricsData.Select(m => m.CpuPercent).ToArray(), timestamps, "#58a6ff", "%");
                 await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-mem",

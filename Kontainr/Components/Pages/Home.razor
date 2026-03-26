@@ -57,7 +57,7 @@
                         }
                         — @alert.Message
                     </span>
-                    <span style="font-size: 0.72rem; color: var(--k-text-muted);">@alert.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                    <span style="font-size: 0.72rem; color: var(--k-text-muted);">@TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(alert.Timestamp, DateTimeKind.Utc), Settings.GetTimeZone()).ToString("HH:mm:ss")</span>
                 </div>
             }
         </div>
