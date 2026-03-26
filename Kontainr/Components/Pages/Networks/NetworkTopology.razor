@@ -43,6 +43,27 @@
             }
         </div>
     }
+    <div style="position: absolute; top: 0.75rem; right: 0.75rem; z-index: 10; background: rgba(22,27,34,0.9); border: 1px solid var(--k-border); border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.72rem; color: var(--k-text-muted); line-height: 1.6;">
+        <div style="margin-bottom: 0.25rem; font-weight: 600; color: var(--k-text); font-size: 0.75rem;">Legend</div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; transform: rotate(45deg); border: 2px solid var(--k-purple); background: #161b22;"></span>
+            Network
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 2px solid var(--k-green); background: #0d2818;"></span>
+            Running container
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 2px dashed var(--k-red); background: #1c1012; opacity: 0.6;"></span>
+            Stopped container
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--k-accent); background: #1a3a52;"></span>
+            Port mapping
+        </div>
+        <div style="margin-top: 0.3rem; font-size: 0.68rem; color: var(--k-text-muted);">Click container to view details</div>
+        <div style="font-size: 0.68rem; color: var(--k-text-muted);">Hover to highlight connections</div>
+    </div>
     <div id="cy-topology" style="width: 100%; height: 100%;"></div>
 </div>
 
@@ -91,6 +112,7 @@
     {
         var elements = new List<object>();
         var addedContainers = new HashSet<string>();
+        var addedPorts = new HashSet<string>();
         int runningCount = 0, stoppedCount = 0;
 
         foreach (var net in networks)
@@ -99,16 +121,18 @@
             var subnet = net.IPAM?.Config?.FirstOrDefault()?.Subnet;
             var netLabel = net.Name;
             if (subnet is not null) netLabel += $"\n{subnet}";
-            netLabel += $"\n({net.Driver})";
+            netLabel += $"\n{net.Driver}";
+            var netNodeId = $"net-{net.ID[..12]}";
 
             elements.Add(new
             {
                 data = new
                 {
-                    id = $"net-{net.ID[..12]}",
+                    id = netNodeId,
                     label = netLabel,
                     nodeType = "network",
-                    driver = net.Driver ?? ""
+                    driver = net.Driver ?? "",
+                    color = "" // filled by JS
                 }
             });
 
@@ -117,6 +141,8 @@
             {
                 foreach (var (containerId, endpoint) in net.Containers)
                 {
+                    var cNodeId = $"c-{containerId[..12]}";
+
                     // Add container node (only once, even if in multiple networks)
                     if (!addedContainers.Contains(containerId))
                     {
@@ -124,51 +150,84 @@
 
                         var name = endpoint.Name;
                         var state = "exited";
-                        var portLines = "";
+                        List<(ushort pub, ushort priv, string proto)>? ports = null;
 
                         if (containerLookup.TryGetValue(containerId, out var container))
                         {
                             name = container.Names.FirstOrDefault()?.TrimStart('/') ?? name;
                             state = container.State;
-                            var publicPorts = container.Ports?
+                            ports = container.Ports?
                                 .Where(p => p.PublicPort > 0)
-                                .Select(p => $"{p.PublicPort}:{p.PrivatePort}/{p.Type}")
+                                .Select(p => (p.PublicPort, p.PrivatePort, p.Type))
                                 .ToList();
-                            if (publicPorts?.Count > 0)
-                                portLines = "\n" + string.Join(", ", publicPorts);
                         }
 
                         if (state == "running") runningCount++; else stoppedCount++;
-
-                        var ip = endpoint.IPv4Address;
-                        if (!string.IsNullOrEmpty(ip) && ip.Contains('/'))
-                            ip = ip.Split('/')[0]; // strip CIDR notation
-
-                        var containerLabel = name;
-                        if (!string.IsNullOrEmpty(ip)) containerLabel += $"\n{ip}";
-                        containerLabel += portLines;
 
                         elements.Add(new
                         {
                             data = new
                             {
-                                id = $"c-{containerId[..12]}",
-                                label = containerLabel,
+                                id = cNodeId,
+                                label = name,
                                 nodeType = "container",
                                 status = state,
                                 containerId = containerId
                             }
                         });
+
+                        // Port badge nodes (one per unique port mapping)
+                        if (ports is not null)
+                        {
+                            foreach (var (pub, priv, proto) in ports)
+                            {
+                                var portKey = $"{containerId[..12]}-{pub}-{priv}";
+                                if (addedPorts.Add(portKey))
+                                {
+                                    var portNodeId = $"p-{portKey}";
+                                    elements.Add(new
+                                    {
+                                        data = new
+                                        {
+                                            id = portNodeId,
+                                            label = $":{pub} -> :{priv}/{proto}",
+                                            nodeType = "port"
+                                        }
+                                    });
+                                    elements.Add(new
+                                    {
+                                        data = new
+                                        {
+                                            id = $"ep-{portKey}",
+                                            source = cNodeId,
+                                            target = portNodeId,
+                                            edgeType = "port",
+                                            label = "",
+                                            targetNetId = "",
+                                            color = ""
+                                        }
+                                    });
+                                }
+                            }
+                        }
                     }
 
-                    // Edge: container -> network
+                    // Edge: container -> network (with IP label)
+                    var ip = endpoint.IPv4Address;
+                    if (!string.IsNullOrEmpty(ip) && ip.Contains('/'))
+                        ip = ip.Split('/')[0];
+
                     elements.Add(new
                     {
                         data = new
                         {
                             id = $"e-{containerId[..12]}-{net.ID[..12]}",
-                            source = $"c-{containerId[..12]}",
-                            target = $"net-{net.ID[..12]}"
+                            source = cNodeId,
+                            target = netNodeId,
+                            edgeType = "network",
+                            label = ip ?? "",
+                            targetNetId = netNodeId,
+                            color = "" // filled by JS
                         }
                     });
                 }
