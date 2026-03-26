@@ -1,0 +1,229 @@
+@page "/topology"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject DockerService Docker
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>Network Topology - Kontainr</PageTitle>
+
+<div class="k-topbar">
+    <h1>Network Topology</h1>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <select class="k-form-input" style="width: auto; padding: 0.35rem 0.5rem; font-size: 0.8rem;" @bind="selectedLayout" @bind:after="ApplyLayout">
+            <option value="cose">Force-directed</option>
+            <option value="circle">Circle</option>
+            <option value="breadthfirst">Hierarchical</option>
+            <option value="grid">Grid</option>
+        </select>
+        <button class="k-btn" @onclick="ResetView">Fit View</button>
+        <button class="k-btn" @onclick="Refresh" disabled="@loading">Refresh</button>
+    </div>
+</div>
+
+<div class="k-content" style="padding: 0; height: calc(100vh - 49px); position: relative;">
+    @if (error is not null)
+    {
+        <div class="k-error" style="margin: 1rem;">@error</div>
+    }
+    @if (loading)
+    {
+        <div style="position: absolute; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 10;">
+            <span class="k-badge" style="background: rgba(88,166,255,0.15); color: var(--k-accent); padding: 0.4rem 0.8rem;">Loading topology...</span>
+        </div>
+    }
+    @if (stats is not null)
+    {
+        <div style="position: absolute; bottom: 1rem; left: 1rem; z-index: 10; display: flex; gap: 0.5rem;">
+            <span class="k-badge" style="background: rgba(188,140,255,0.15); color: var(--k-purple);">@stats.Value.NetworkCount networks</span>
+            <span class="k-badge" style="background: rgba(63,185,80,0.15); color: var(--k-green);">@stats.Value.RunningCount running</span>
+            @if (stats.Value.StoppedCount > 0)
+            {
+                <span class="k-badge" style="background: rgba(248,81,73,0.15); color: var(--k-red);">@stats.Value.StoppedCount stopped</span>
+            }
+        </div>
+    }
+    <div id="cy-topology" style="width: 100%; height: 100%;"></div>
+</div>
+
+@code {
+    private bool loading = true;
+    private string? error;
+    private string selectedLayout = "cose";
+    private DotNetObjectReference<NetworkTopology>? dotnetRef;
+    private (int NetworkCount, int RunningCount, int StoppedCount)? stats;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotnetRef = DotNetObjectReference.Create(this);
+            await LoadAndRender();
+        }
+    }
+
+    private async Task LoadAndRender()
+    {
+        loading = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var networks = await Docker.GetNetworksAsync();
+            var containers = await Docker.GetContainersAsync(all: true);
+            var containerLookup = containers.ToDictionary(c => c.ID, c => c);
+
+            var elements = BuildElements(networks, containerLookup);
+            await JS.InvokeVoidAsync("kontainr.initTopology", "cy-topology", elements, dotnetRef);
+        }
+        catch (Exception ex)
+        {
+            error = $"Cannot connect to Docker: {ex.Message}";
+        }
+
+        loading = false;
+        StateHasChanged();
+    }
+
+    private List<object> BuildElements(IList<Docker.DotNet.Models.NetworkResponse> networks,
+        Dictionary<string, Docker.DotNet.Models.ContainerListResponse> containerLookup)
+    {
+        var elements = new List<object>();
+        var addedContainers = new HashSet<string>();
+        int runningCount = 0, stoppedCount = 0;
+
+        foreach (var net in networks)
+        {
+            // Network node
+            var subnet = net.IPAM?.Config?.FirstOrDefault()?.Subnet;
+            var netLabel = net.Name;
+            if (subnet is not null) netLabel += $"\n{subnet}";
+            netLabel += $"\n({net.Driver})";
+
+            elements.Add(new
+            {
+                data = new
+                {
+                    id = $"net-{net.ID[..12]}",
+                    label = netLabel,
+                    nodeType = "network",
+                    driver = net.Driver ?? ""
+                }
+            });
+
+            // Container nodes connected to this network
+            if (net.Containers is not null)
+            {
+                foreach (var (containerId, endpoint) in net.Containers)
+                {
+                    // Add container node (only once, even if in multiple networks)
+                    if (!addedContainers.Contains(containerId))
+                    {
+                        addedContainers.Add(containerId);
+
+                        var name = endpoint.Name;
+                        var state = "exited";
+                        var portLines = "";
+
+                        if (containerLookup.TryGetValue(containerId, out var container))
+                        {
+                            name = container.Names.FirstOrDefault()?.TrimStart('/') ?? name;
+                            state = container.State;
+                            var publicPorts = container.Ports?
+                                .Where(p => p.PublicPort > 0)
+                                .Select(p => $"{p.PublicPort}:{p.PrivatePort}/{p.Type}")
+                                .ToList();
+                            if (publicPorts?.Count > 0)
+                                portLines = "\n" + string.Join(", ", publicPorts);
+                        }
+
+                        if (state == "running") runningCount++; else stoppedCount++;
+
+                        var ip = endpoint.IPv4Address;
+                        if (!string.IsNullOrEmpty(ip) && ip.Contains('/'))
+                            ip = ip.Split('/')[0]; // strip CIDR notation
+
+                        var containerLabel = name;
+                        if (!string.IsNullOrEmpty(ip)) containerLabel += $"\n{ip}";
+                        containerLabel += portLines;
+
+                        elements.Add(new
+                        {
+                            data = new
+                            {
+                                id = $"c-{containerId[..12]}",
+                                label = containerLabel,
+                                nodeType = "container",
+                                status = state,
+                                containerId = containerId
+                            }
+                        });
+                    }
+
+                    // Edge: container -> network
+                    elements.Add(new
+                    {
+                        data = new
+                        {
+                            id = $"e-{containerId[..12]}-{net.ID[..12]}",
+                            source = $"c-{containerId[..12]}",
+                            target = $"net-{net.ID[..12]}"
+                        }
+                    });
+                }
+            }
+        }
+
+        stats = (networks.Count, runningCount, stoppedCount);
+        return elements;
+    }
+
+    private async Task Refresh()
+    {
+        loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var networks = await Docker.GetNetworksAsync();
+            var containers = await Docker.GetContainersAsync(all: true);
+            var containerLookup = containers.ToDictionary(c => c.ID, c => c);
+            var elements = BuildElements(networks, containerLookup);
+            await JS.InvokeVoidAsync("kontainr.updateTopology", (object)elements);
+        }
+        catch (Exception ex)
+        {
+            error = $"Refresh failed: {ex.Message}";
+        }
+
+        loading = false;
+        StateHasChanged();
+    }
+
+    private async Task ApplyLayout()
+    {
+        await JS.InvokeVoidAsync("kontainr.setTopologyLayout", selectedLayout);
+    }
+
+    private async Task ResetView()
+    {
+        await JS.InvokeVoidAsync("kontainr.resetTopologyView");
+    }
+
+    [JSInvokable]
+    public void NavigateToContainer(string containerId)
+    {
+        Nav.NavigateTo($"/containers/{containerId}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("kontainr.disposeTopology");
+        }
+        catch { }
+        dotnetRef?.Dispose();
+    }
+}
