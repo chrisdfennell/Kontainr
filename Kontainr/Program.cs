@@ -27,6 +27,8 @@ builder.Services.AddSingleton<ContainerFileService>();
 builder.Services.AddSingleton<RegistryService>();
 builder.Services.AddSingleton<ScheduledRestartService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduledRestartService>());
+builder.Services.AddSingleton<LogAlertService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<LogAlertService>());
 
 var app = builder.Build();
 

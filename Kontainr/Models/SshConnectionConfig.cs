@@ -21,6 +21,7 @@ public class AppSettings
     public List<ScheduledRestart> ScheduledRestarts { get; set; } = [];
     public List<GitStackConfig> GitStacks { get; set; } = [];
     public List<RegistryConfig> Registries { get; set; } = [];
+    public List<LogAlertRule> LogAlertRules { get; set; } = [];
 }
 
 public class WebhookConfig
@@ -29,6 +30,15 @@ public class WebhookConfig
     public bool Enabled { get; set; }
     public bool OnCrash { get; set; } = true;
     public bool OnRestartLoop { get; set; } = true;
+    public bool OnLogPattern { get; set; } = true;
+}
+
+public class LogAlertRule
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string ContainerName { get; set; } = "";
+    public string Pattern { get; set; } = "";
+    public bool Enabled { get; set; } = true;
 }
 
 public class ScheduledRestart

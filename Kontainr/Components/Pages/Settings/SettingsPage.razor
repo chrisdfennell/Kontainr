@@ -152,8 +152,8 @@
         </div>
         <div class="k-card-body">
             <div style="max-width: 600px;">
-                <label class="k-form-label">Webhook URL (Discord, Slack, or any HTTP endpoint)</label>
-                <input class="k-form-input" type="text" placeholder="https://discord.com/api/webhooks/..." @bind="webhookUrl" />
+                <label class="k-form-label">Webhook URL (Discord, Slack, Ntfy, or any HTTP endpoint)</label>
+                <input class="k-form-input" type="text" placeholder="https://discord.com/api/webhooks/... or https://ntfy.sh/mytopic" @bind="webhookUrl" />
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                     <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
                         <input type="checkbox" @bind="webhookEnabled" /> Enabled
@@ -164,8 +164,11 @@
                     <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
                         <input type="checkbox" @bind="webhookOnRestart" /> On Restart Loop
                     </label>
+                    <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; color: var(--k-text-muted);">
+                        <input type="checkbox" @bind="webhookOnLogPattern" /> On Log Pattern
+                    </label>
                 </div>
-                <span style="font-size: 0.7rem; color: var(--k-text-muted);">Auto-detects Discord and Slack URLs. Other URLs receive a generic JSON POST.</span>
+                <span style="font-size: 0.7rem; color: var(--k-text-muted);">Auto-detects Discord, Slack, and Ntfy URLs. Other URLs receive a generic JSON POST.</span>
             </div>
         </div>
     </div>
@@ -238,6 +241,58 @@
         }
     </div>
 
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            Log Pattern Alerts
+            <button class="k-btn" @onclick="ShowAddLogAlert">Add Rule</button>
+        </div>
+        @if (showLogAlertForm)
+        {
+            <div class="k-card-body" style="border-bottom: 1px solid var(--k-border);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 500px;">
+                    <div>
+                        <label class="k-form-label">Container Name</label>
+                        <input class="k-form-input" type="text" placeholder="my-container" @bind="logAlertContainerName" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Pattern (text or regex)</label>
+                        <input class="k-form-input" type="text" placeholder="ERROR|OOM|panic" @bind="logAlertPattern" />
+                    </div>
+                </div>
+                <span style="font-size: 0.7rem; color: var(--k-text-muted);">Watches container logs every 30s. Sends a webhook when the pattern matches. Supports regex.</span>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveLogAlert" disabled="@(string.IsNullOrWhiteSpace(logAlertContainerName) || string.IsNullOrWhiteSpace(logAlertPattern))">Save</button>
+                    <button class="k-btn" @onclick="() => showLogAlertForm = false">Cancel</button>
+                </div>
+            </div>
+        }
+        @if (logAlertRules.Count > 0)
+        {
+            <table class="k-table">
+                <thead><tr><th>Container</th><th>Pattern</th><th>Enabled</th><th style="text-align: right;">Actions</th></tr></thead>
+                <tbody>
+                    @foreach (var rule in logAlertRules)
+                    {
+                        <tr>
+                            <td><strong>@rule.ContainerName</strong></td>
+                            <td class="k-mono">@rule.Pattern</td>
+                            <td>
+                                <span style="color: @(rule.Enabled ? "var(--k-green)" : "var(--k-text-muted)");">@(rule.Enabled ? "Active" : "Disabled")</span>
+                            </td>
+                            <td style="text-align: right;">
+                                <button class="k-btn k-btn-danger" @onclick="() => DeleteLogAlert(rule.Id)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (!showLogAlertForm)
+        {
+            <div style="text-align: center; padding: 1.5rem; color: var(--k-text-muted);">No log alert rules configured. Set up webhooks first, then add rules here.</div>
+        }
+    </div>
+
     <div class="k-card">
         <div class="k-card-header">About Authentication</div>
         <div class="k-card-body" style="font-size: 0.85rem; color: var(--k-text-muted); line-height: 1.6;">
@@ -267,6 +322,7 @@
     private bool webhookEnabled;
     private bool webhookOnCrash = true;
     private bool webhookOnRestart = true;
+    private bool webhookOnLogPattern = true;
 
     // Scheduled restarts
     private List<ScheduledRestart> schedules = [];
@@ -276,6 +332,12 @@
     private string schedCustom = "";
     private bool testSuccess;
     private bool testing;
+
+    // Log alert rules
+    private List<LogAlertRule> logAlertRules = [];
+    private bool showLogAlertForm;
+    private string logAlertContainerName = "";
+    private string logAlertPattern = "";
 
     private bool confirmVisible;
     private string confirmTitle = "", confirmMessage = "", confirmBtnText = "Confirm";
@@ -291,7 +353,9 @@
         var wh = SshSettings.GetWebhook();
         webhookUrl = wh.Url; webhookEnabled = wh.Enabled;
         webhookOnCrash = wh.OnCrash; webhookOnRestart = wh.OnRestartLoop;
+        webhookOnLogPattern = wh.OnLogPattern;
         schedules = SshSettings.GetScheduledRestarts();
+        logAlertRules = SshSettings.GetLogAlertRules();
     }
 
     private void SaveWebhook()
@@ -299,7 +363,8 @@
         SshSettings.SaveWebhook(new WebhookConfig
         {
             Url = webhookUrl.Trim(), Enabled = webhookEnabled,
-            OnCrash = webhookOnCrash, OnRestartLoop = webhookOnRestart
+            OnCrash = webhookOnCrash, OnRestartLoop = webhookOnRestart,
+            OnLogPattern = webhookOnLogPattern
         });
         Toast.Success("Webhook settings saved");
     }
@@ -415,6 +480,29 @@
             testSuccess = false;
         }
         testing = false;
+    }
+
+    private void ShowAddLogAlert() { showLogAlertForm = true; logAlertContainerName = ""; logAlertPattern = ""; }
+
+    private void SaveLogAlert()
+    {
+        if (string.IsNullOrWhiteSpace(logAlertContainerName) || string.IsNullOrWhiteSpace(logAlertPattern)) return;
+        SshSettings.SaveLogAlertRule(new LogAlertRule
+        {
+            ContainerName = logAlertContainerName.Trim(),
+            Pattern = logAlertPattern.Trim(),
+            Enabled = true
+        });
+        Toast.Success("Log alert rule saved");
+        showLogAlertForm = false;
+        logAlertRules = SshSettings.GetLogAlertRules();
+    }
+
+    private void DeleteLogAlert(string id)
+    {
+        SshSettings.DeleteLogAlertRule(id);
+        Toast.Success("Log alert rule deleted");
+        logAlertRules = SshSettings.GetLogAlertRules();
     }
 
     private async Task ExportSettings()

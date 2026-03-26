@@ -88,6 +88,21 @@ window.kontainr = {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     },
+    // ── Mobile sidebar toggle ──────────────────────────────────
+    toggleSidebar: function () {
+        var sidebar = document.querySelector('.k-sidebar');
+        var overlay = document.getElementById('k-sidebar-overlay');
+        if (sidebar) sidebar.classList.toggle('open');
+        if (overlay) overlay.classList.toggle('open');
+    },
+
+    closeSidebar: function () {
+        var sidebar = document.querySelector('.k-sidebar');
+        var overlay = document.getElementById('k-sidebar-overlay');
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('open');
+    },
+
     downloadBlob: function (filename, base64, contentType) {
         const byteChars = atob(base64);
         const byteArray = new Uint8Array(byteChars.length);
