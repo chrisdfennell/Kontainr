@@ -1,14 +1,16 @@
 window.kontainr = {
     initGlobalSearch: function () {
-        var input = document.getElementById('k-global-search-input');
-        if (!input) return;
-        input.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                var q = input.value.trim();
-                if (q) {
-                    window.location.href = '/search?q=' + encodeURIComponent(q);
-                    input.value = '';
-                }
+        // Use event delegation on document so it survives Blazor re-renders
+        if (this._globalSearchInit) return;
+        this._globalSearchInit = true;
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            var input = document.getElementById('k-global-search-input');
+            if (!input || document.activeElement !== input) return;
+            var q = input.value.trim();
+            if (q) {
+                window.location.href = '/search?q=' + encodeURIComponent(q);
+                input.value = '';
             }
         });
     },
