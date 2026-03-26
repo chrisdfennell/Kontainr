@@ -28,8 +28,14 @@
 
 ## Features
 
+### Multi-Host Docker Management
+- **Remote Docker Hosts** — manage containers across multiple servers from a single Kontainr instance
+- **TCP & SSH Tunnel** — connect via Docker API over TCP or through SSH tunnels to remote Docker sockets
+- **Host Selector** — filter dashboard and container views by host, or view all hosts at once
+- **Per-Host Port Links** — configurable host URL for each remote server so port links resolve correctly
+
 ### Container Management
-- **Dashboard** — overview of running/stopped containers, images, volumes with live CPU/RAM stats
+- **Dashboard** — overview of running/stopped containers, images, volumes with live CPU/RAM stats across all hosts
 - **Crash/Restart Alerts** — automatic detection of crashed or restart-looping containers with webhook notifications (Discord, Slack, or generic HTTP)
 - **Favorites** — pin containers to the top of the dashboard for quick access
 - **Start, Stop, Restart, Remove** — all with confirmation dialogs and toast notifications
@@ -45,8 +51,10 @@
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
 - **Health Check Badges** — healthy/unhealthy/starting indicators on containers
 
-### Monitoring
-- **CPU/RAM Sparkline Graphs** — resource usage over time on container detail pages
+### Monitoring & Metrics
+- **Historical Metrics** — persistent CPU, memory, and network I/O metrics stored in SQLite with configurable retention (default 7 days)
+- **Interactive Charts** — historical line charts with time range selector (last hour, 24h, 7 days), aggregate stats (avg/max CPU, peak memory), and downsampled data
+- **CPU/RAM Sparkline Graphs** — real-time resource usage sparklines on container detail pages
 - **Live Log Streaming** — real-time `docker logs -f` with search/filter
 - **Log Pattern Alerts** — monitor container logs for user-defined regex or text patterns and trigger webhook alerts on match, with cooldown to prevent spam
 - **Log Export** — download container logs as a text file
@@ -144,7 +152,9 @@ volumes:
 
 Mount a volume to `/app/data` to persist:
 - SSH connection configs (passwords encrypted with ASP.NET Data Protection)
+- Docker host configurations (remote server connections)
 - Webhook configuration and scheduled restarts
+- Historical metrics database (SQLite)
 - Host URL, theme, favorites, and app settings
 - Encryption keys
 
@@ -192,7 +202,8 @@ docker build -t kontainr -f Kontainr/Dockerfile Kontainr/
 
 - **Blazor Server** (.NET 10) — real-time interactive UI
 - **Docker.DotNet** — Docker Engine API client
-- **SSH.NET** — SSH client for remote terminal
+- **EF Core + SQLite** — persistent metrics storage
+- **SSH.NET** — SSH client for remote terminal and Docker host tunneling
 - **xterm.js** — interactive terminal emulator
 - **Cytoscape.js** — network topology graph visualization
 - **ASP.NET Data Protection** — encrypted credential storage

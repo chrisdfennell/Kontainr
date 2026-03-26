@@ -1,9 +1,12 @@
+@page "/containers/{HostId}/{ContainerId}"
 @page "/containers/{ContainerId}"
 @rendermode InteractiveServer
 @inject DockerService Docker
+@inject DockerServiceFactory DockerFactory
 @inject IJSRuntime JS
 @inject ToastService Toast
 @inject StatsHistoryService StatsHistory
+@inject MetricsQueryService MetricsQuery
 @implements IDisposable
 
 <PageTitle>Container - Kontainr</PageTitle>
@@ -17,23 +20,29 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Back
         </a>
-        <h1>@(container?.Name ?? "Container")</h1>
+        <h1>
+            @(container?.Name ?? "Container")
+            @if (HostId is not null && HostId != "local")
+            {
+                <span class="k-badge" style="margin-left: 0.5rem; font-size: 0.7rem;">@hostName</span>
+            }
+        </h1>
     </div>
     @if (container is not null)
     {
         <div class="k-btn-group">
             @if (inspect?.State?.Running == true)
             {
-                <a href="/containers/@ContainerId/terminal" class="k-btn" style="text-decoration: none;" title="Interactive terminal">
+                <a href="/containers/@(HostId ?? "local")/@ContainerId/terminal" class="k-btn" style="text-decoration: none;" title="Interactive terminal">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                     Terminal
                 </a>
-                <a href="/containers/@ContainerId/files" class="k-btn" style="text-decoration: none;" title="Browse files">
+                <a href="/containers/@(HostId ?? "local")/@ContainerId/files" class="k-btn" style="text-decoration: none;" title="Browse files">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                     Files
                 </a>
             }
-            <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
+            <a href="/containers/@(HostId ?? "local")/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
             <button class="k-btn" @onclick="ExportCompose" disabled="@acting" title="Export as docker-compose.yml">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Compose
@@ -81,6 +90,7 @@
     {
         <div class="k-tabs">
             <button class="k-tab @(activeTab == "overview" ? "active" : "")" @onclick="SetTabOverview">Overview</button>
+            <button class="k-tab @(activeTab == "metrics" ? "active" : "")" @onclick="SelectMetrics">Metrics</button>
             <button class="k-tab @(activeTab == "logs" ? "active" : "")" @onclick="SelectLogs">Logs</button>
             <button class="k-tab @(activeTab == "terminal" ? "active" : "")" @onclick="SetTabTerminal">Terminal</button>
             <button class="k-tab @(activeTab == "inspect" ? "active" : "")" @onclick="SetTabInspect">Inspect</button>
@@ -124,7 +134,7 @@
                 </div>
             </div>
 
-            @if (StatsHistory.GetHistory(ContainerId) is { CpuPoints.Count: > 1 } history)
+            @if (StatsHistory.GetHistory(statsKey) is { CpuPoints.Count: > 1 } history)
             {
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                     <div class="k-card">
@@ -157,6 +167,12 @@
 
                         <div class="k-detail-key">Working Dir</div>
                         <div class="k-detail-value k-mono">@(string.IsNullOrEmpty(inspect.Config.WorkingDir) ? "/" : inspect.Config.WorkingDir)</div>
+
+                        @if (HostId is not null && HostId != "local")
+                        {
+                            <div class="k-detail-key">Host</div>
+                            <div class="k-detail-value">@hostName</div>
+                        }
 
                         @if (inspect.Config.Labels?.TryGetValue("com.docker.compose.project", out var proj) == true)
                         {
@@ -224,6 +240,80 @@
                             }
                         </tbody>
                     </table>
+                </div>
+            }
+        }
+
+        @if (activeTab == "metrics")
+        {
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <button class="k-btn @(metricsRange == MetricsTimeRange.LastHour ? "k-btn-primary" : "")"
+                        @onclick="() => LoadMetrics(MetricsTimeRange.LastHour)">Last Hour</button>
+                <button class="k-btn @(metricsRange == MetricsTimeRange.LastDay ? "k-btn-primary" : "")"
+                        @onclick="() => LoadMetrics(MetricsTimeRange.LastDay)">Last 24h</button>
+                <button class="k-btn @(metricsRange == MetricsTimeRange.LastWeek ? "k-btn-primary" : "")"
+                        @onclick="() => LoadMetrics(MetricsTimeRange.LastWeek)">Last 7d</button>
+            </div>
+
+            @if (metricsLoading)
+            {
+                <div class="k-spinner">Loading metrics...</div>
+            }
+            else if (metricsData.Count == 0)
+            {
+                <div style="text-align: center; padding: 3rem; color: var(--k-text-muted);">
+                    No metrics data yet. Metrics are collected every @metricsInterval seconds for running containers.
+                </div>
+            }
+            else
+            {
+                @if (aggregate is not null)
+                {
+                    <div class="k-stat-grid" style="margin-bottom: 1rem;">
+                        <div class="k-stat-card">
+                            <div class="k-stat-label">Avg CPU</div>
+                            <div class="k-stat-value blue">@($"{aggregate.AvgCpu:F1}%")</div>
+                        </div>
+                        <div class="k-stat-card">
+                            <div class="k-stat-label">Max CPU</div>
+                            <div class="k-stat-value red">@($"{aggregate.MaxCpu:F1}%")</div>
+                        </div>
+                        <div class="k-stat-card">
+                            <div class="k-stat-label">Avg Memory</div>
+                            <div class="k-stat-value green">@FormatBytes(aggregate.AvgMemory)</div>
+                        </div>
+                        <div class="k-stat-card">
+                            <div class="k-stat-label">Peak Memory</div>
+                            <div class="k-stat-value yellow">@FormatBytes(aggregate.PeakMemory)</div>
+                        </div>
+                    </div>
+                }
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="k-card">
+                        <div class="k-card-header">CPU Usage</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="metrics-cpu" class="k-sparkline" style="height: 200px;"></canvas>
+                        </div>
+                    </div>
+                    <div class="k-card">
+                        <div class="k-card-header">Memory Usage</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="metrics-mem" class="k-sparkline" style="height: 200px;"></canvas>
+                        </div>
+                    </div>
+                    <div class="k-card">
+                        <div class="k-card-header">Network RX</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="metrics-netrx" class="k-sparkline" style="height: 200px;"></canvas>
+                        </div>
+                    </div>
+                    <div class="k-card">
+                        <div class="k-card-header">Network TX</div>
+                        <div class="k-card-body" style="padding: 0.5rem;">
+                            <canvas id="metrics-nettx" class="k-sparkline" style="height: 200px;"></canvas>
+                        </div>
+                    </div>
                 </div>
             }
         }
@@ -316,8 +406,13 @@
 
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
+    [Parameter] public string? HostId { get; set; }
     [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private SshSettingsService SettingsService { get; set; } = default!;
 
+    private DockerService docker = default!;
+    private string hostName = "Local";
+    private string statsKey = "";
     private ContainerViewModel? container;
     private Docker.DotNet.Models.ContainerInspectResponse? inspect;
     private string activeTab = "overview";
@@ -346,22 +441,56 @@
     private List<string> commandHistory = [];
     private int historyIndex = -1;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    // Metrics
+    private MetricsTimeRange metricsRange = MetricsTimeRange.LastHour;
+    private List<MetricsDataPoint> metricsData = [];
+    private AggregateMetrics? aggregate;
+    private bool metricsLoading;
+    private int metricsInterval;
+
+    protected override async Task OnInitializedAsync()
+    {
+        HostId ??= "local";
+        docker = DockerFactory.GetService(HostId);
+        var config = DockerFactory.GetHostConfig(HostId);
+        hostName = config.Name;
+        statsKey = HostId == "local" ? ContainerId : $"{HostId}:{ContainerId}";
+        metricsInterval = SettingsService.GetMetricsCollectionInterval();
+        await LoadAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Render sparklines after each render if data exists
-        var history = StatsHistory.GetHistory(ContainerId);
-        if (history is not null && history.CpuPoints.Count > 1 && activeTab == "overview")
+        if (activeTab == "overview")
+        {
+            var history = StatsHistory.GetHistory(statsKey);
+            if (history is not null && history.CpuPoints.Count > 1)
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("kontainr.drawSparkline", "cpu-sparkline",
+                        history.CpuPoints.ToArray(), "#58a6ff", 100.0);
+                    await JS.InvokeVoidAsync("kontainr.drawSparkline", "mem-sparkline",
+                        history.MemPoints.Select(m => (double)m).ToArray(), "#3fb950", 0.0);
+                }
+                catch { }
+            }
+        }
+        else if (activeTab == "metrics" && metricsData.Count > 0)
         {
             try
             {
-                await JS.InvokeVoidAsync("kontainr.drawSparkline", "cpu-sparkline",
-                    history.CpuPoints.ToArray(), "#58a6ff", 100.0);
-                await JS.InvokeVoidAsync("kontainr.drawSparkline", "mem-sparkline",
-                    history.MemPoints.Select(m => (double)m).ToArray(), "#3fb950", 0.0);
+                var timestamps = metricsData.Select(m => m.Timestamp.ToLocalTime().ToString("HH:mm")).ToArray();
+                await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-cpu",
+                    metricsData.Select(m => m.CpuPercent).ToArray(), timestamps, "#58a6ff", "%");
+                await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-mem",
+                    metricsData.Select(m => (double)m.MemoryBytes).ToArray(), timestamps, "#3fb950", "bytes");
+                await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-netrx",
+                    metricsData.Select(m => (double)m.NetworkRxBytes).ToArray(), timestamps, "#d29922", "bytes");
+                await JS.InvokeVoidAsync("kontainr.drawChart", "metrics-nettx",
+                    metricsData.Select(m => (double)m.NetworkTxBytes).ToArray(), timestamps, "#f778ba", "bytes");
             }
-            catch { /* canvas may not exist yet */ }
+            catch { }
         }
     }
 
@@ -371,21 +500,22 @@
         error = null;
         try
         {
-            inspect = await Docker.InspectContainerAsync(ContainerId);
+            inspect = await docker.InspectContainerAsync(ContainerId);
             container = new ContainerViewModel
             {
                 Id = inspect.ID,
                 Name = inspect.Name.TrimStart('/'),
                 Image = inspect.Config.Image,
-                State = inspect.State.Status
+                State = inspect.State.Status,
+                HostId = HostId ?? "local",
+                HostName = hostName
             };
-            isSelf = Docker.IsSelf(inspect.ID);
+            isSelf = HostId == "local" && Docker.IsSelf(inspect.ID);
             inspectJson = System.Text.Json.JsonSerializer.Serialize(inspect, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-            // Fetch stats if running
             if (inspect.State?.Running == true)
             {
-                var stats = await Docker.GetContainerStatsOnceAsync(ContainerId);
+                var stats = await docker.GetContainerStatsOnceAsync(ContainerId);
                 if (stats is not null)
                 {
                     var cpuDelta = (double)(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage);
@@ -394,7 +524,7 @@
                     cpuPercent = sysDelta > 0 ? (cpuDelta / sysDelta) * cpuCount * 100.0 : 0;
                     memUsage = (long)stats.MemoryStats.Usage;
                     memLimit = (long)stats.MemoryStats.Limit;
-                    StatsHistory.Record(ContainerId, cpuPercent.Value, memUsage.Value);
+                    StatsHistory.Record(statsKey, cpuPercent.Value, memUsage.Value);
                 }
             }
         }
@@ -403,6 +533,32 @@
             error = $"Failed to load container: {ex.Message}";
         }
         loading = false;
+    }
+
+    // ── Metrics ──────────────────────────────────────────────────
+
+    private async Task SelectMetrics()
+    {
+        activeTab = "metrics";
+        await LoadMetrics(metricsRange);
+    }
+
+    private async Task LoadMetrics(MetricsTimeRange range)
+    {
+        metricsRange = range;
+        metricsLoading = true;
+        StateHasChanged();
+        try
+        {
+            var hid = HostId ?? "local";
+            metricsData = await MetricsQuery.GetMetricsAsync(hid, ContainerId, range);
+            aggregate = await MetricsQuery.GetAggregateAsync(hid, ContainerId, range);
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to load metrics: {ex.Message}";
+        }
+        metricsLoading = false;
     }
 
     // ── Logs ─────────────────────────────────────────────────────
@@ -440,7 +596,7 @@
         try
         {
             logContent = "Loading logs...";
-            var raw = await Docker.GetContainerLogsAsync(ContainerId, 500);
+            var raw = await docker.GetContainerLogsAsync(ContainerId, 500);
             logContent = CleanLogOutput(raw);
         }
         catch (Exception ex)
@@ -461,10 +617,9 @@
         {
             try
             {
-                await Docker.StreamContainerLogsAsync(ContainerId, 100, line =>
+                await docker.StreamContainerLogsAsync(ContainerId, 100, line =>
                 {
                     logBuffer.AppendLine(line);
-                    // Trim buffer if too large (keep last 5000 lines)
                     if (logBuffer.Length > 500_000)
                     {
                         var text = logBuffer.ToString();
@@ -541,7 +696,7 @@
 
         try
         {
-            var result = await Docker.ExecContainerAsync(ContainerId, cmd);
+            var result = await docker.ExecContainerAsync(ContainerId, cmd);
             if (!string.IsNullOrEmpty(result))
                 terminalOutput += System.Web.HttpUtility.HtmlEncode(result.TrimEnd()) + "\n";
         }
@@ -596,7 +751,7 @@
     private async Task Start()
     {
         acting = true;
-        try { await Docker.StartContainerAsync(ContainerId); Toast.Success("Container started"); }
+        try { await docker.StartContainerAsync(ContainerId); Toast.Success("Container started"); }
         catch (Exception ex) { Toast.Error($"Start failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
@@ -605,7 +760,7 @@
     private async Task Stop()
     {
         acting = true;
-        try { await Docker.StopContainerAsync(ContainerId); Toast.Success("Container stopped"); }
+        try { await docker.StopContainerAsync(ContainerId); Toast.Success("Container stopped"); }
         catch (Exception ex) { Toast.Error($"Stop failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
@@ -614,7 +769,7 @@
     private async Task Restart()
     {
         acting = true;
-        try { await Docker.RestartContainerAsync(ContainerId); Toast.Success("Container restarted"); }
+        try { await docker.RestartContainerAsync(ContainerId); Toast.Success("Container restarted"); }
         catch (Exception ex) { Toast.Error($"Restart failed: {ex.Message}"); }
         await LoadAsync();
         acting = false;
@@ -624,7 +779,7 @@
         ShowConfirm("Remove Container", $"Permanently remove \"{container?.Name}\"? This cannot be undone.", "Remove", async () =>
         {
             acting = true;
-            try { await Docker.RemoveContainerAsync(ContainerId, force: true); Toast.Success("Container removed"); }
+            try { await docker.RemoveContainerAsync(ContainerId, force: true); Toast.Success("Container removed"); }
             catch (Exception ex) { Toast.Error($"Remove failed: {ex.Message}"); acting = false; return; }
             Nav.NavigateTo("/containers");
         });
@@ -636,9 +791,9 @@
             try
             {
                 var newName = $"{container?.Name}-clone";
-                var newId = await Docker.CloneContainerAsync(ContainerId, newName);
+                var newId = await docker.CloneContainerAsync(ContainerId, newName);
                 Toast.Success($"Cloned as '{newName}'");
-                Nav.NavigateTo($"/containers/{newId}");
+                Nav.NavigateTo($"/containers/{HostId ?? "local"}/{newId}");
             }
             catch (Exception ex) { Toast.Error($"Clone failed: {ex.Message}"); }
             acting = false;
@@ -655,12 +810,11 @@
                 StateHasChanged();
                 try
                 {
-                    await Docker.SelfUpdateAsync(ContainerId, status =>
+                    await docker.SelfUpdateAsync(ContainerId, status =>
                     {
                         recreateStatus = status;
                         InvokeAsync(StateHasChanged);
                     });
-                    // The updater container will restart us — start polling for the new instance
                     recreateStatus = "Kontainr is restarting — page will reload...";
                     StateHasChanged();
                     await PollForReload();
@@ -683,13 +837,13 @@
                 StateHasChanged();
                 try
                 {
-                    var newId = await Docker.RecreateContainerAsync(ContainerId, status =>
+                    var newId = await docker.RecreateContainerAsync(ContainerId, status =>
                     {
                         recreateStatus = status;
                         InvokeAsync(StateHasChanged);
                     });
                     Toast.Success($"Container updated successfully");
-                    Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+                    Nav.NavigateTo($"/containers/{HostId ?? "local"}/{newId}", forceLoad: true);
                 }
                 catch (Exception ex)
                 {
@@ -704,9 +858,6 @@
 
     private async Task PollForReload()
     {
-        // After the updater starts, Kontainr will be stopped and restarted.
-        // The old container ID won't exist anymore, so redirect to the containers list.
-        // The reconnect modal will auto-reconnect, but we also poll and redirect explicitly.
         await Task.Delay(8000);
         for (var i = 0; i < 30; i++)
         {
@@ -723,7 +874,7 @@
     {
         try
         {
-            var yaml = await Docker.ExportComposeAsync(ContainerId);
+            var yaml = await docker.ExportComposeAsync(ContainerId);
             var fileName = $"{container?.Name ?? "container"}-compose.yml";
             await JS.InvokeVoidAsync("kontainr.downloadText", fileName, yaml);
             Toast.Success("Exported docker-compose.yml");

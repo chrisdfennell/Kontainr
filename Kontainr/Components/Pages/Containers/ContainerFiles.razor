@@ -1,3 +1,5 @@
+@page "/containers/{HostId}/{ContainerId}/files"
+@page "/containers/{HostId}/{ContainerId}/files/{**CurrentPath}"
 @page "/containers/{ContainerId}/files"
 @page "/containers/{ContainerId}/files/{**CurrentPath}"
 @rendermode InteractiveServer
@@ -11,7 +13,7 @@
 
 <div class="k-topbar">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <a href="/containers/@ContainerId" class="k-btn" style="text-decoration: none;">
+        <a href="/containers/@(HostId ?? "local")/@ContainerId" class="k-btn" style="text-decoration: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Back
         </a>
@@ -128,6 +130,7 @@
 
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
+    [Parameter] public string? HostId { get; set; }
     [Parameter] public string? CurrentPath { get; set; }
 
     private string ResolvedPath => "/" + (CurrentPath?.Trim('/') ?? "");
@@ -189,7 +192,7 @@
         if (entry.IsDirectory)
         {
             var newPath = ResolvedPath.TrimEnd('/') + "/" + entry.Name;
-            Nav.NavigateTo($"/containers/{ContainerId}/files{newPath}");
+            Nav.NavigateTo($"/containers/{HostId ?? "local"}/{ContainerId}/files{newPath}");
         }
     }
 
@@ -198,7 +201,7 @@
         var parent = ResolvedPath.TrimEnd('/');
         var lastSlash = parent.LastIndexOf('/');
         var newPath = lastSlash > 0 ? parent[..lastSlash] : "/";
-        Nav.NavigateTo($"/containers/{ContainerId}/files{newPath}");
+        Nav.NavigateTo($"/containers/{HostId ?? "local"}/{ContainerId}/files{newPath}");
     }
 
     private async Task DownloadFile(FileEntry entry)

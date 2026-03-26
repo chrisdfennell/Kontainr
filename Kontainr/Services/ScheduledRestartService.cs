@@ -6,16 +6,18 @@ namespace Kontainr.Services;
 /// </summary>
 public class ScheduledRestartService : BackgroundService
 {
-    private readonly DockerService _docker;
+    private readonly DockerHostManager _hostManager;
+    private readonly DockerServiceFactory _dockerFactory;
     private readonly SshSettingsService _settings;
     private readonly ToastService _toast;
     private readonly ILogger<ScheduledRestartService> _logger;
     private readonly HashSet<string> _executedThisMinute = [];
 
-    public ScheduledRestartService(DockerService docker, SshSettingsService settings,
-        ToastService toast, ILogger<ScheduledRestartService> logger)
+    public ScheduledRestartService(DockerHostManager hostManager, DockerServiceFactory dockerFactory,
+        SshSettingsService settings, ToastService toast, ILogger<ScheduledRestartService> logger)
     {
-        _docker = docker;
+        _hostManager = hostManager;
+        _dockerFactory = dockerFactory;
         _settings = settings;
         _toast = toast;
         _logger = logger;
@@ -39,26 +41,31 @@ public class ScheduledRestartService : BackgroundService
                         _executedThisMinute.Add(sr.Id);
                         _logger.LogInformation("Scheduled restart: {Container}", sr.ContainerName);
 
-                        try
+                        // Try each host to find the container
+                        foreach (var hostId in _hostManager.GetAllHostIds())
                         {
-                            var containers = await _docker.GetContainersAsync(true);
-                            var match = containers.FirstOrDefault(c =>
-                                c.Names.Any(n => n.TrimStart('/').Equals(sr.ContainerName, StringComparison.OrdinalIgnoreCase)));
-
-                            if (match is not null && match.State == "running")
+                            try
                             {
-                                await _docker.RestartContainerAsync(match.ID);
-                                _logger.LogInformation("Restarted {Container} on schedule", sr.ContainerName);
+                                var docker = _dockerFactory.GetService(hostId);
+                                var containers = await docker.GetContainersAsync(true);
+                                var match = containers.FirstOrDefault(c =>
+                                    c.Names.Any(n => n.TrimStart('/').Equals(sr.ContainerName, StringComparison.OrdinalIgnoreCase)));
+
+                                if (match is not null && match.State == "running")
+                                {
+                                    await docker.RestartContainerAsync(match.ID);
+                                    _logger.LogInformation("Restarted {Container} on host {Host}", sr.ContainerName, hostId);
+                                    break;
+                                }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Scheduled restart failed for {Container}", sr.ContainerName);
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Scheduled restart failed for {Container} on {Host}", sr.ContainerName, hostId);
+                            }
                         }
                     }
                 }
 
-                // Clear executed set when minute changes
                 if (now.Second < 5)
                     _executedThisMinute.Clear();
             }
@@ -71,18 +78,10 @@ public class ScheduledRestartService : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Simple cron matching:
-    /// - "03:00" = daily at 3:00 AM
-    /// - "Sun 03:00" = every Sunday at 3:00 AM
-    /// - "Mon,Wed,Fri 06:00" = Mon/Wed/Fri at 6:00 AM
-    /// - "*/6" = every 6 hours (at :00)
-    /// </summary>
     private static bool ShouldRun(string expr, DateTime now)
     {
         expr = expr.Trim();
 
-        // Every N hours: "*/6"
         if (expr.StartsWith("*/"))
         {
             if (int.TryParse(expr[2..], out var hours))
@@ -90,22 +89,13 @@ public class ScheduledRestartService : BackgroundService
             return false;
         }
 
-        // Split day and time
         var parts = expr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         string timePart;
         string? dayPart = null;
 
-        if (parts.Length == 2)
-        {
-            dayPart = parts[0];
-            timePart = parts[1];
-        }
-        else
-        {
-            timePart = parts[0];
-        }
+        if (parts.Length == 2) { dayPart = parts[0]; timePart = parts[1]; }
+        else { timePart = parts[0]; }
 
-        // Parse time
         var timeParts = timePart.Split(':');
         if (timeParts.Length != 2) return false;
         if (!int.TryParse(timeParts[0], out var hour) || !int.TryParse(timeParts[1], out var minute))
@@ -113,7 +103,6 @@ public class ScheduledRestartService : BackgroundService
 
         if (now.Hour != hour || now.Minute != minute) return false;
 
-        // Check day if specified
         if (dayPart is not null)
         {
             var days = dayPart.Split(',', StringSplitOptions.RemoveEmptyEntries);

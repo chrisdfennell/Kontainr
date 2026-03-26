@@ -1,6 +1,7 @@
 @page "/containers"
 @rendermode InteractiveServer
 @inject DockerService Docker
+@inject DockerServiceFactory DockerFactory
 @inject ToastService Toast
 @inject SshSettingsService Settings
 @inject StatsHistoryService StatsHistory
@@ -13,8 +14,18 @@
 
 <div class="k-topbar">
     <h1>Containers</h1>
-    <div style="display: flex; gap: 0.75rem; align-items: center;">
+    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
         <input class="k-search" type="text" placeholder="Search containers..." @bind="searchTerm" @bind:event="oninput" />
+        @if (allHostIds.Count > 1)
+        {
+            <select class="k-select" @bind="selectedHostId" @bind:after="LoadAsync">
+                <option value="">All Hosts</option>
+                @foreach (var h in hostConfigs)
+                {
+                    <option value="@h.Id">@h.Name</option>
+                }
+            </select>
+        }
         <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; color: var(--k-text-muted);">
             <input type="checkbox" @bind="showAll" @bind:after="LoadAsync" /> Show stopped
         </label>
@@ -105,6 +116,9 @@
     private List<ContainerViewModel> standaloneContainers = [];
     private Dictionary<string, (double cpu, long memUsage, long memLimit)> stats = [];
     private HashSet<string> collapsedGroups = [];
+    private IReadOnlyList<string> allHostIds = [];
+    private IReadOnlyList<Models.DockerHostConfig> hostConfigs = [];
+    private string selectedHostId = "";
     private bool loading = true;
     private bool showAll = true;
     private string searchTerm = "";
@@ -115,6 +129,7 @@
     private int refreshInterval = 5;
     private Timer? refreshTimer;
     private string hostUrl = "localhost";
+    private bool multiHost;
 
     // Confirm dialog
     private bool confirmVisible;
@@ -126,6 +141,9 @@
     protected override async Task OnInitializedAsync()
     {
         hostUrl = Settings.GetHostUrl();
+        allHostIds = DockerFactory.GetAllHostIds();
+        hostConfigs = DockerFactory.GetAllHostConfigs();
+        multiHost = allHostIds.Count > 1;
         await LoadAsync();
         StartAutoRefresh();
     }
@@ -144,15 +162,33 @@
         error = null;
         try
         {
-            var raw = await Docker.GetContainersAsync(showAll);
-            allContainers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            var all = new List<ContainerViewModel>();
+            var hostsToQuery = string.IsNullOrEmpty(selectedHostId) ? allHostIds : [selectedHostId];
+
+            foreach (var hostId in hostsToQuery)
+            {
+                try
+                {
+                    var docker = DockerFactory.GetService(hostId);
+                    var config = DockerFactory.GetHostConfig(hostId);
+                    var raw = await docker.GetContainersAsync(showAll);
+                    all.AddRange(raw.Select(c => ContainerViewModel.FromApi(c, hostId, config.Name)));
+                }
+                catch (Exception ex)
+                {
+                    error = (error is null ? "" : error + "\n") + $"{hostId}: {ex.Message}";
+                }
+            }
+
+            allContainers = all.OrderBy(c => c.Name).ToList();
             RebuildGroups();
 
             var running = allContainers.Where(c => c.IsRunning).ToList();
             var statsTasks = running.Select(async c =>
             {
-                var s = await Docker.GetContainerStatsOnceAsync(c.Id);
-                return (c.Id, Stats: s);
+                var docker = DockerFactory.GetService(c.HostId);
+                var s = await docker.GetContainerStatsOnceAsync(c.Id);
+                return (c.Id, c.HostId, Stats: s);
             });
             var results = await Task.WhenAll(statsTasks);
             var newStats = new Dictionary<string, (double cpu, long memUsage, long memLimit)>();
@@ -166,8 +202,9 @@
                     var cpuCount = r.Stats.CPUStats.OnlineCPUs > 0 ? r.Stats.CPUStats.OnlineCPUs : (ulong)(r.Stats.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1);
                     if (sysDelta > 0 && cpuDelta >= 0)
                         cpu = (cpuDelta / sysDelta) * cpuCount * 100.0;
-                    newStats[r.Id] = (cpu, (long)r.Stats.MemoryStats.Usage, (long)r.Stats.MemoryStats.Limit);
-                    StatsHistory.Record(r.Id, cpu, (long)r.Stats.MemoryStats.Usage);
+                    var key = r.HostId == "local" ? r.Id : $"{r.HostId}:{r.Id}";
+                    newStats[key] = (cpu, (long)r.Stats.MemoryStats.Usage, (long)r.Stats.MemoryStats.Limit);
+                    StatsHistory.Record(key, cpu, (long)r.Stats.MemoryStats.Usage);
                 }
             }
             stats = newStats;
@@ -209,9 +246,17 @@
     private void ToggleGroup(string key) { if (!collapsedGroups.Remove(key)) collapsedGroups.Add(key); }
     private bool IsCollapsed(string key) => collapsedGroups.Contains(key);
 
-    private string GetCpu(string id) => stats.TryGetValue(id, out var s) ? $"{s.cpu:F1}%" : "...";
-    private string GetMemory(string id) => stats.TryGetValue(id, out var s)
-        ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}" : "...";
+    private string GetCpu(ContainerViewModel c)
+    {
+        var key = c.HostId == "local" ? c.Id : $"{c.HostId}:{c.Id}";
+        return stats.TryGetValue(key, out var s) ? $"{s.cpu:F1}%" : "...";
+    }
+
+    private string GetMemory(ContainerViewModel c)
+    {
+        var key = c.HostId == "local" ? c.Id : $"{c.HostId}:{c.Id}";
+        return stats.TryGetValue(key, out var s) ? $"{FormatBytes(s.memUsage)} / {FormatBytes(s.memLimit)}" : "...";
+    }
 
     private static string FormatBytes(long bytes)
     {
@@ -243,31 +288,31 @@
 
     // ── Container actions ────────────────────────────────────────
 
-    private async Task StartContainer(string id)
+    private async Task StartContainer(ContainerViewModel c)
     {
-        actionInProgress = id;
-        try { await Docker.StartContainerAsync(id); Toast.Success("Container started"); }
+        actionInProgress = c.Id;
+        try { var docker = DockerFactory.GetService(c.HostId); await docker.StartContainerAsync(c.Id); Toast.Success("Container started"); }
         catch (Exception ex) { Toast.Error($"Start failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
     }
 
-    private void RequestStop(string id, string name) =>
-        ShowConfirm("Stop Container", $"Stop container \"{name}\"?", "Stop", async () => await StopContainer(id));
+    private void RequestStop(ContainerViewModel c) =>
+        ShowConfirm("Stop Container", $"Stop container \"{c.Name}\"?", "Stop", async () => await StopContainer(c));
 
-    private async Task StopContainer(string id)
+    private async Task StopContainer(ContainerViewModel c)
     {
-        actionInProgress = id;
-        try { await Docker.StopContainerAsync(id); Toast.Success("Container stopped"); }
+        actionInProgress = c.Id;
+        try { var docker = DockerFactory.GetService(c.HostId); await docker.StopContainerAsync(c.Id); Toast.Success("Container stopped"); }
         catch (Exception ex) { Toast.Error($"Stop failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
     }
 
-    private async Task RestartContainer(string id)
+    private async Task RestartContainer(ContainerViewModel c)
     {
-        actionInProgress = id;
-        try { await Docker.RestartContainerAsync(id); Toast.Success("Container restarted"); }
+        actionInProgress = c.Id;
+        try { var docker = DockerFactory.GetService(c.HostId); await docker.RestartContainerAsync(c.Id); Toast.Success("Container restarted"); }
         catch (Exception ex) { Toast.Error($"Restart failed: {ex.Message}"); }
         await LoadAsync();
         actionInProgress = null;
@@ -282,7 +327,7 @@
             var containers = composeGroups.GetValueOrDefault(project) ?? [];
             foreach (var c in containers.Where(c => !c.IsRunning))
             {
-                try { await Docker.StartContainerAsync(c.Id); }
+                try { var docker = DockerFactory.GetService(c.HostId); await docker.StartContainerAsync(c.Id); }
                 catch { }
             }
             Toast.Success($"Started stack: {project}");
@@ -297,7 +342,7 @@
             var containers = composeGroups.GetValueOrDefault(project) ?? [];
             foreach (var c in containers.Where(c => c.IsRunning))
             {
-                try { await Docker.StopContainerAsync(c.Id); }
+                try { var docker = DockerFactory.GetService(c.HostId); await docker.StopContainerAsync(c.Id); }
                 catch { }
             }
             Toast.Success($"Stopped stack: {project}");
@@ -312,7 +357,7 @@
             var containers = composeGroups.GetValueOrDefault(project) ?? [];
             foreach (var c in containers.Where(c => c.IsRunning))
             {
-                try { await Docker.RestartContainerAsync(c.Id); }
+                try { var docker = DockerFactory.GetService(c.HostId); await docker.RestartContainerAsync(c.Id); }
                 catch { }
             }
             Toast.Success($"Restarted stack: {project}");
@@ -320,7 +365,7 @@
             bulkAction = null;
         });
 
-    private void NavigateToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
+    private void NavigateToContainer(ContainerViewModel c) => Nav.NavigateTo($"/containers/{c.HostId}/{c.Id}");
 
     private RenderFragment RenderContainerTable(List<ContainerViewModel> items) => __builder =>
     {
@@ -330,6 +375,10 @@
                     <th class="col-name">Name</th>
                     <th class="col-image">Image</th>
                     <th class="col-status">Status</th>
+                    @if (multiHost)
+                    {
+                        <th class="col-host">Host</th>
+                    }
                     <th class="col-cpu">CPU</th>
                     <th class="col-mem">Memory</th>
                     <th class="col-ports">Ports</th>
@@ -339,7 +388,7 @@
             <tbody>
                 @foreach (var c in items)
                 {
-                    <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
+                    <tr class="k-clickable" @onclick="() => NavigateToContainer(c)">
                         <td class="col-name">
                             <strong>@c.Name</strong>
                             @if (Docker.IsSelf(c.Id))
@@ -362,8 +411,12 @@
                                 <span class="k-health-badge @c.HealthClass">@c.HealthStatus</span>
                             }
                         </td>
-                        <td class="col-cpu k-mono">@(c.IsRunning ? GetCpu(c.Id) : "-")</td>
-                        <td class="col-mem k-mono">@(c.IsRunning ? GetMemory(c.Id) : "-")</td>
+                        @if (multiHost)
+                        {
+                            <td class="col-host">@c.HostName</td>
+                        }
+                        <td class="col-cpu k-mono">@(c.IsRunning ? GetCpu(c) : "-")</td>
+                        <td class="col-mem k-mono">@(c.IsRunning ? GetMemory(c) : "-")</td>
                         <td class="col-ports" @onclick:stopPropagation="true">
                             @if (c.PublicPorts.Any())
                             {
@@ -383,16 +436,16 @@
                             <div class="k-btn-group" style="justify-content: flex-end;">
                                 @if (c.IsRunning)
                                 {
-                                    <button class="k-btn" @onclick="() => RequestStop(c.Id, c.Name)" disabled="@(actionInProgress == c.Id)" title="Stop">
+                                    <button class="k-btn" @onclick="() => RequestStop(c)" disabled="@(actionInProgress == c.Id)" title="Stop">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
                                     </button>
-                                    <button class="k-btn" @onclick="() => RestartContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Restart">
+                                    <button class="k-btn" @onclick="() => RestartContainer(c)" disabled="@(actionInProgress == c.Id)" title="Restart">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                                     </button>
                                 }
                                 else
                                 {
-                                    <button class="k-btn k-btn-success" @onclick="() => StartContainer(c.Id)" disabled="@(actionInProgress == c.Id)" title="Start">
+                                    <button class="k-btn k-btn-success" @onclick="() => StartContainer(c)" disabled="@(actionInProgress == c.Id)" title="Start">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                                     </button>
                                 }

@@ -1,14 +1,16 @@
+@page "/containers/{HostId}/{ContainerId}/edit"
 @page "/containers/{ContainerId}/edit"
 @rendermode InteractiveServer
 @using global::Docker.DotNet.Models
 @inject DockerService Docker
+@inject DockerServiceFactory DockerFactory
 @inject ToastService Toast
 
 <PageTitle>Edit Container - Kontainr</PageTitle>
 
 <div class="k-topbar">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <a href="/containers/@ContainerId" class="k-btn" style="text-decoration: none;">
+        <a href="/containers/@(HostId ?? "local")/@ContainerId" class="k-btn" style="text-decoration: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Back
         </a>
@@ -132,6 +134,7 @@
 
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
+    [Parameter] public string? HostId { get; set; }
     [Inject] private NavigationManager Nav { get; set; } = default!;
 
     private string containerName = "";
@@ -245,7 +248,7 @@
                 null, rp, net, status => { applyStatus = status; InvokeAsync(StateHasChanged); });
 
             Toast.Success("Container recreated with new config");
-            Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+            Nav.NavigateTo($"/containers/{HostId ?? "local"}/{newId}", forceLoad: true);
         }
         catch (Exception ex)
         {

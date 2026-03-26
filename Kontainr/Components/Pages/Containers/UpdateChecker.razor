@@ -137,7 +137,7 @@
         try
         {
             var raw = await Docker.GetContainersAsync(true);
-            containers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            containers = raw.Select(c => ContainerViewModel.FromApi(c)).OrderBy(c => c.Name).ToList();
         }
         catch (Exception ex)
         {
