@@ -42,6 +42,7 @@
 - **Container Creation Wizard** — pull image, configure ports, volumes, env vars, restart policy, network, CPU/memory limits
 - **Container Config Editor** — edit env vars, ports, restart policy, network and recreate with new config
 - **Container Clone** — duplicate any container's config as a new container with one click
+- **Container File Browser** — browse, upload, download, and manage files inside running containers
 - **One-Click Update** — pull latest image and recreate container with the same configuration
 - **Self-Update** — Kontainr can update its own container via a temporary updater sidecar, with automatic page reload
 - **Update Checker** — scan all containers for newer registry images, with "self" badge identifying Kontainr's own container
@@ -49,6 +50,7 @@
 - **Docker Compose Deploy** — upload or paste a `docker-compose.yml` and deploy stacks from the UI
 - **Docker Compose Export** — export any container's configuration as a `docker-compose.yml` with ports, volumes, env vars, networks, and resource limits
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
+- **Git Stacks** — deploy and manage Docker Compose stacks directly from Git repositories
 - **Health Check Badges** — healthy/unhealthy/starting indicators on containers
 
 ### Monitoring & Metrics
@@ -73,19 +75,22 @@
 - **Volumes** — list, create, remove, prune unused volumes
 - **Networks** — list, create (bridge/host/overlay/macvlan), remove, prune unused networks
 - **Network Topology** — interactive Cytoscape.js graph showing containers connected to their networks with port mappings, color-coded edges, hover highlighting, and multiple layout options
+- **Registry Browser** — connect to private Docker registries, browse repositories and tags, pull images directly from the UI
 - **System Info** — Docker version, CPU/RAM, storage driver, kernel, full system prune
 
 ### App Templates
 - **175+ Pre-built Templates** — one-click deploy for Nginx, PostgreSQL, Redis, Grafana, Pi-hole, Jellyfin, Ollama, Minecraft, the full *arr stack, and more
 - **22 Categories** — web servers, databases, monitoring, media, dev tools, security, networking, AI, gaming, productivity, and more
+- **Template Descriptions** — every template includes a searchable description explaining what the app does
 - **Docker Hub Links** — each template links directly to its Docker Hub page
-- **Configurable Deploy** — change container name, ports, and env vars before deploying
+- **Configurable Deploy** — change container name, ports, env vars, network, volumes, and restart policy before deploying
 
 ### Settings & Security
 - **Basic Auth** — optional password protection via environment variables
 - **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
 - **Webhook Notifications** — Discord, Slack, ntfy, or generic HTTP alerts for container crashes and log pattern matches
 - **Configurable Host URL** — port links use your NAS hostname instead of localhost
+- **Time Zone Configuration** — configurable timezone for chart timestamps and all displayed times throughout the app
 - **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
 - **Backup & Restore** — export/import all settings as JSON
 - **Global Search** — search containers, images, volumes, and networks from any page
@@ -154,9 +159,10 @@ volumes:
 Mount a volume to `/app/data` to persist:
 - SSH connection configs (passwords encrypted with ASP.NET Data Protection)
 - Docker host configurations (remote server connections)
-- Webhook configuration and scheduled restarts
+- Registry connections and Git stack configurations
+- Webhook configuration, scheduled restarts, and log alert rules
 - Historical metrics database (SQLite)
-- Host URL, theme, favorites, and app settings
+- Host URL, theme, timezone, favorites, and app settings
 - Encryption keys
 
 ### SSH Connections
