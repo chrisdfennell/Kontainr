@@ -251,6 +251,168 @@ public class DockerService : IDisposable
         return newContainer.ID;
     }
 
+    // ── Self-Update (for updating Kontainr's own container) ──────
+
+    /// <summary>
+    /// Detects if the given container ID matches the container Kontainr is running in.
+    /// Inside Docker, the hostname is the short container ID.
+    /// </summary>
+    public bool IsSelf(string containerId) =>
+        containerId.StartsWith(Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Updates Kontainr's own container by spawning a temporary docker:cli container
+    /// that performs the stop/remove/create/start cycle after a short delay.
+    /// </summary>
+    public async Task SelfUpdateAsync(string selfId, Action<string>? onProgress = null)
+    {
+        var inspect = await InspectContainerAsync(selfId);
+        var name = inspect.Name.TrimStart('/');
+        var image = inspect.Config.Image;
+
+        // 1. Pull the latest image
+        onProgress?.Invoke($"Pulling {image}...");
+        var tag = "latest";
+        var repo = image;
+        if (image.Contains(':'))
+        {
+            var parts = image.Split(':', 2);
+            repo = parts[0];
+            tag = parts[1];
+        }
+
+        await _client.Images.CreateImageAsync(
+            new ImagesCreateParameters { FromImage = repo, Tag = tag },
+            null,
+            new Progress<JSONMessage>(msg =>
+            {
+                if (!string.IsNullOrEmpty(msg.Status))
+                    onProgress?.Invoke(msg.Status);
+            }));
+
+        // 2. Pull docker:cli for the updater container
+        onProgress?.Invoke("Preparing updater...");
+        try
+        {
+            await _client.Images.CreateImageAsync(
+                new ImagesCreateParameters { FromImage = "docker", Tag = "cli" },
+                null, new Progress<JSONMessage>());
+        }
+        catch
+        {
+            onProgress?.Invoke("Failed to pull docker:cli image");
+            throw;
+        }
+
+        // 3. Build the docker create command from the inspected config
+        var args = new List<string>();
+
+        // Name
+        args.Add($"--name {name}");
+
+        // Restart policy
+        var restartKind = inspect.HostConfig.RestartPolicy?.Name;
+        if (restartKind is not null && restartKind != RestartPolicyKind.Undefined && restartKind != RestartPolicyKind.No)
+        {
+            var rpStr = restartKind switch
+            {
+                RestartPolicyKind.Always => "always",
+                RestartPolicyKind.UnlessStopped => "unless-stopped",
+                RestartPolicyKind.OnFailure => "on-failure",
+                _ => "no"
+            };
+            if (restartKind == RestartPolicyKind.OnFailure && inspect.HostConfig.RestartPolicy.MaximumRetryCount > 0)
+                rpStr += $":{inspect.HostConfig.RestartPolicy.MaximumRetryCount}";
+            args.Add($"--restart {rpStr}");
+        }
+
+        // Environment variables
+        if (inspect.Config.Env is not null)
+        {
+            foreach (var env in inspect.Config.Env)
+                args.Add($"-e '{env}'");
+        }
+
+        // Port bindings
+        if (inspect.HostConfig.PortBindings is not null)
+        {
+            foreach (var (containerPort, bindings) in inspect.HostConfig.PortBindings)
+            {
+                if (bindings is null) continue;
+                foreach (var b in bindings)
+                {
+                    var hostPart = string.IsNullOrEmpty(b.HostIP) ? "" : $"{b.HostIP}:";
+                    args.Add($"-p {hostPart}{b.HostPort}:{containerPort}");
+                }
+            }
+        }
+
+        // Volume binds
+        if (inspect.HostConfig.Binds is not null)
+        {
+            foreach (var bind in inspect.HostConfig.Binds)
+                args.Add($"-v '{bind}'");
+        }
+
+        // Network mode
+        if (!string.IsNullOrEmpty(inspect.HostConfig.NetworkMode) && inspect.HostConfig.NetworkMode != "default")
+            args.Add($"--network {inspect.HostConfig.NetworkMode}");
+
+        // Labels
+        if (inspect.Config.Labels is not null)
+        {
+            foreach (var (key, value) in inspect.Config.Labels)
+                args.Add($"--label '{key}={value}'");
+        }
+
+        // Resource limits
+        if (inspect.HostConfig.NanoCPUs > 0)
+            args.Add($"--cpus {inspect.HostConfig.NanoCPUs / 1_000_000_000.0}");
+        if (inspect.HostConfig.Memory > 0)
+            args.Add($"--memory {inspect.HostConfig.Memory}");
+
+        var dockerArgs = string.Join(" ", args);
+
+        // 4. Build the updater script
+        var script = $"""
+            echo 'Waiting for Kontainr to send response...'
+            sleep 5
+            echo 'Stopping {name}...'
+            docker stop {selfId} -t 10
+            echo 'Removing {name}...'
+            docker rm {selfId}
+            echo 'Creating new {name}...'
+            docker create {dockerArgs} {image}
+            echo 'Starting {name}...'
+            docker start {name}
+            echo 'Self-update complete!'
+            """;
+
+        // 5. Determine the Docker socket path for the updater container
+        var socketBind = OperatingSystem.IsWindows()
+            ? "//./pipe/docker_engine://./pipe/docker_engine"
+            : "/var/run/docker.sock:/var/run/docker.sock";
+
+        // 6. Create and start the updater container
+        onProgress?.Invoke("Launching updater...");
+        var updater = await _client.Containers.CreateContainerAsync(new CreateContainerParameters
+        {
+            Image = "docker:cli",
+            Name = $"kontainr-updater-{DateTime.UtcNow:yyyyMMddHHmmss}",
+            Cmd = ["sh", "-c", script],
+            Labels = new Dictionary<string, string> { ["kontainr.updater"] = "true" },
+            HostConfig = new HostConfig
+            {
+                Binds = [socketBind],
+                AutoRemove = true
+            }
+        });
+
+        await _client.Containers.StartContainerAsync(updater.ID, new ContainerStartParameters());
+
+        onProgress?.Invoke("Update in progress — page will reload automatically...");
+    }
+
     // ── Clone Container ────────────────────────────────────────────
 
     public async Task<string> CloneContainerAsync(string id, string newName)
