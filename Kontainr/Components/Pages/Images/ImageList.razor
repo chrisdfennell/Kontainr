@@ -10,6 +10,7 @@
 
 <div class="k-topbar">
     <h1>Images</h1>
+    <p style="font-size: 0.78rem; color: var(--k-text-muted); margin: 0;">View, pull, inspect, and remove Docker images.</p>
     <div style="display: flex; gap: 0.75rem; align-items: center;">
         <input class="k-search" type="text" placeholder="Search images..." @bind="searchTerm" @bind:event="oninput" />
         <button class="k-btn k-btn-primary" @onclick="ShowPullDialog">Pull Image</button>

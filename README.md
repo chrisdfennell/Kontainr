@@ -76,8 +76,9 @@
 - **System Info** — Docker version, CPU/RAM, storage driver, kernel, full system prune
 
 ### App Templates
-- **55+ Pre-built Templates** — one-click deploy for Nginx, PostgreSQL, Redis, Grafana, Pi-hole, Jellyfin, the full *arr stack, and more
-- **12 Categories** — web servers, databases, monitoring, media, dev tools, security, networking, and more
+- **175+ Pre-built Templates** — one-click deploy for Nginx, PostgreSQL, Redis, Grafana, Pi-hole, Jellyfin, Ollama, Minecraft, the full *arr stack, and more
+- **22 Categories** — web servers, databases, monitoring, media, dev tools, security, networking, AI, gaming, productivity, and more
+- **Docker Hub Links** — each template links directly to its Docker Hub page
 - **Configurable Deploy** — change container name, ports, and env vars before deploying
 
 ### Settings & Security

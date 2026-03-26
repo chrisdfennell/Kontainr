@@ -8,6 +8,7 @@
 
 <div class="k-topbar">
     <h1>App Templates</h1>
+    <p style="font-size: 0.78rem; color: var(--k-text-muted); margin: 0;">Deploy popular Docker apps with one click.</p>
     <div style="display: flex; gap: 0.75rem; align-items: center;">
         <select class="k-select" @bind="categoryFilter">
             <option value="">All Categories</option>
@@ -95,8 +96,19 @@
         @foreach (var tmpl in FilteredTemplates)
         {
             <div class="k-template-card">
-                <div class="k-template-name">@tmpl.Name</div>
-                <div class="k-template-category">@tmpl.Category</div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <div class="k-template-name">@tmpl.Name</div>
+                        <div class="k-template-category">@tmpl.Category</div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(tmpl.Url))
+                    {
+                        <a href="@tmpl.Url" target="_blank" rel="noopener noreferrer" class="k-btn" style="padding: 0.2rem 0.4rem; font-size: 0.65rem; text-decoration: none;" title="View on Docker Hub" @onclick:stopPropagation="true">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            Hub
+                        </a>
+                    }
+                </div>
                 <div class="k-mono" style="font-size: 0.72rem; color: var(--k-text-muted); margin: 0.4rem 0;">@tmpl.Image</div>
                 @if (tmpl.Ports.Count > 0)
                 {
@@ -126,7 +138,7 @@
     }
 
     <div style="text-align: center; padding: 1rem; color: var(--k-text-muted); font-size: 0.8rem;">
-        @AppTemplates.Templates.Count templates available
+        @FilteredTemplates.Count() of @AppTemplates.Templates.Count templates
     </div>
 </div>
 
