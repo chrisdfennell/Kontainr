@@ -58,7 +58,7 @@
 
                     @if (configEnv.Count > 0)
                     {
-                        <div>
+                        <div style="margin-bottom: 0.75rem;">
                             <label class="k-form-label">Environment Variables</label>
                             @for (int i = 0; i < configEnv.Count; i++)
                             {
@@ -71,6 +71,49 @@
                             }
                         </div>
                     }
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <div>
+                            <label class="k-form-label">Network</label>
+                            <select class="k-form-input" @bind="configNetwork">
+                                <option value="">(default bridge)</option>
+                                @foreach (var net in availableNetworks)
+                                {
+                                    <option value="@net">@net</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="k-form-label">Restart Policy</label>
+                            <select class="k-form-input" @bind="configRestartPolicy">
+                                <option value="unless-stopped">Unless Stopped</option>
+                                <option value="always">Always</option>
+                                <option value="on-failure">On Failure</option>
+                                <option value="no">No</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 0.75rem;">
+                        <label class="k-form-label">
+                            Volume Mounts
+                            <button class="k-btn" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; margin-left: 0.5rem;" @onclick="AddVolume">+ Add</button>
+                        </label>
+                        @for (int i = 0; i < configVolumes.Count; i++)
+                        {
+                            var idx = i;
+                            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.35rem;">
+                                <input class="k-form-input" style="flex: 1;" type="text" placeholder="host path or volume name" @bind="configVolumes[idx].Host" />
+                                <span style="color: var(--k-text-muted);">:</span>
+                                <input class="k-form-input" style="flex: 1;" type="text" placeholder="container path" @bind="configVolumes[idx].Container" />
+                                <button class="k-btn k-btn-danger" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;" @onclick="() => configVolumes.RemoveAt(idx)">x</button>
+                            </div>
+                        }
+                        @if (configVolumes.Count == 0)
+                        {
+                            <span style="font-size: 0.7rem; color: var(--k-text-muted);">No volumes configured. Click + Add to mount host paths or named volumes.</span>
+                        }
+                    </div>
 
                     @if (!string.IsNullOrEmpty(deployStatus))
                     {
@@ -156,6 +199,10 @@
     private string configName = "";
     private List<PortConfig> configPorts = [];
     private List<EnvConfig> configEnv = [];
+    private List<VolumeConfig> configVolumes = [];
+    private string configNetwork = "";
+    private string configRestartPolicy = "unless-stopped";
+    private List<string> availableNetworks = [];
 
     private List<string> categories = AppTemplates.Templates
         .Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
@@ -176,14 +223,33 @@
         }
     }
 
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var networks = await Docker.GetNetworksAsync();
+            availableNetworks = networks
+                .Select(n => n.Name)
+                .Where(n => n != "none" && n != "host")
+                .OrderBy(n => n)
+                .ToList();
+        }
+        catch { }
+    }
+
     private void ShowConfig(AppTemplate tmpl)
     {
         selectedTemplate = tmpl;
         configName = tmpl.Name.ToLowerInvariant().Replace(" ", "-");
         configPorts = tmpl.Ports.Select(p => new PortConfig { Host = p.Host, Container = p.Container }).ToList();
         configEnv = tmpl.Env.Select(e => new EnvConfig { Key = e.Key, Value = e.Value }).ToList();
+        configVolumes = [];
+        configNetwork = "";
+        configRestartPolicy = tmpl.RestartPolicy;
         deployStatus = "";
     }
+
+    private void AddVolume() => configVolumes.Add(new VolumeConfig());
 
     private void CancelConfig()
     {
@@ -217,13 +283,18 @@
                 .Where(e => !string.IsNullOrWhiteSpace(e.Key))
                 .Select(e => $"{e.Key}={e.Value}").ToList();
 
-            var rpKind = selectedTemplate.RestartPolicy switch
+            var rpKind = configRestartPolicy switch
             {
                 "always" => RestartPolicyKind.Always,
                 "unless-stopped" => RestartPolicyKind.UnlessStopped,
                 "on-failure" => RestartPolicyKind.OnFailure,
                 _ => RestartPolicyKind.No
             };
+
+            var binds = configVolumes
+                .Where(v => !string.IsNullOrWhiteSpace(v.Host) && !string.IsNullOrWhiteSpace(v.Container))
+                .Select(v => $"{v.Host.Trim()}:{v.Container.Trim()}")
+                .ToList();
 
             deployStatus = "Creating container...";
             StateHasChanged();
@@ -237,7 +308,9 @@
                 HostConfig = new HostConfig
                 {
                     PortBindings = portBindings.Count > 0 ? portBindings : null,
-                    RestartPolicy = new RestartPolicy { Name = rpKind }
+                    RestartPolicy = new RestartPolicy { Name = rpKind },
+                    Binds = binds.Count > 0 ? binds : null,
+                    NetworkMode = !string.IsNullOrEmpty(configNetwork) ? configNetwork : null
                 }
             });
 
@@ -262,4 +335,5 @@
 
     private class PortConfig { public string Host { get; set; } = ""; public string Container { get; set; } = ""; }
     private class EnvConfig { public string Key { get; set; } = ""; public string Value { get; set; } = ""; }
+    private class VolumeConfig { public string Host { get; set; } = ""; public string Container { get; set; } = ""; }
 }
