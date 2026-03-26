@@ -106,7 +106,7 @@
         try
         {
             var raw = await Docker.GetContainersAsync(false);
-            runningContainers = raw.Select(ContainerViewModel.FromApi).OrderBy(c => c.Name).ToList();
+            runningContainers = raw.Select(c => ContainerViewModel.FromApi(c)).OrderBy(c => c.Name).ToList();
         }
         catch { }
         loading = false;

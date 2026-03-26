@@ -263,6 +263,58 @@ public class SshSettingsService
         }
     }
 
+    // ── Docker Hosts ──────────────────────────────────────────────
+
+    public List<DockerHostConfig> GetDockerHosts()
+    {
+        lock (_lock) { return Load().DockerHosts.ToList(); }
+    }
+
+    public void SaveDockerHost(DockerHostConfig config)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            var existing = s.DockerHosts.FirstOrDefault(h => h.Id == config.Id);
+            if (existing is not null) s.DockerHosts.Remove(existing);
+            s.DockerHosts.Add(config);
+            Save(s);
+        }
+    }
+
+    public void DeleteDockerHost(string id)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.DockerHosts.RemoveAll(h => h.Id == id);
+            Save(s);
+        }
+    }
+
+    // ── Metrics Settings ────────────────────────────────────────
+
+    public int GetMetricsCollectionInterval()
+    {
+        lock (_lock) { return Load().MetricsCollectionIntervalSeconds; }
+    }
+
+    public int GetMetricsRetentionDays()
+    {
+        lock (_lock) { return Load().MetricsRetentionDays; }
+    }
+
+    public void SaveMetricsSettings(int intervalSeconds, int retentionDays)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.MetricsCollectionIntervalSeconds = intervalSeconds;
+            s.MetricsRetentionDays = retentionDays;
+            Save(s);
+        }
+    }
+
     // ── Log Alert Rules ──────────────────────────────────────────
 
     public List<LogAlertRule> GetLogAlertRules()

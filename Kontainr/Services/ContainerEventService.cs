@@ -9,7 +9,8 @@ namespace Kontainr.Services;
 /// </summary>
 public class ContainerEventService : BackgroundService
 {
-    private readonly DockerService _docker;
+    private readonly DockerHostManager _hostManager;
+    private readonly DockerServiceFactory _dockerFactory;
     private readonly WebhookService _webhook;
     private readonly ILogger<ContainerEventService> _logger;
     private readonly List<ContainerAlert> _alerts = [];
@@ -18,9 +19,11 @@ public class ContainerEventService : BackgroundService
 
     public event Action? OnAlert;
 
-    public ContainerEventService(DockerService docker, WebhookService webhook, ILogger<ContainerEventService> logger)
+    public ContainerEventService(DockerHostManager hostManager, DockerServiceFactory dockerFactory,
+        WebhookService webhook, ILogger<ContainerEventService> logger)
     {
-        _docker = docker;
+        _hostManager = hostManager;
+        _dockerFactory = dockerFactory;
         _webhook = webhook;
         _logger = logger;
     }
@@ -47,51 +50,54 @@ public class ContainerEventService : BackgroundService
 
         while (!ct.IsCancellationRequested)
         {
-            try
+            foreach (var hostId in _hostManager.GetAllHostIds())
             {
-                // Check all containers for unexpected restarts or crashes
-                var containers = await _docker.GetContainersAsync(true);
-                foreach (var c in containers)
+                try
                 {
-                    var name = c.Names.FirstOrDefault()?.TrimStart('/') ?? c.ID[..12];
+                    var docker = _dockerFactory.GetService(hostId);
+                    var hostConfig = _hostManager.GetHostConfig(hostId);
+                    var containers = await docker.GetContainersAsync(true);
 
-                    // Detect exited containers that have a restart policy (unexpected crash)
-                    if (c.State == "exited" && c.Status.Contains("Exited ("))
+                    foreach (var c in containers)
                     {
-                        // Extract exit code
-                        var exitMatch = System.Text.RegularExpressions.Regex.Match(c.Status, @"Exited \((\d+)\)");
-                        var exitCode = exitMatch.Success ? int.Parse(exitMatch.Groups[1].Value) : -1;
+                        var name = c.Names.FirstOrDefault()?.TrimStart('/') ?? c.ID[..12];
 
-                        if (exitCode != 0) // Non-zero exit = crash
+                        if (c.State == "exited" && c.Status.Contains("Exited ("))
                         {
-                            AddAlert("crash", name, $"Exited with code {exitCode}", c.ID);
+                            var exitMatch = System.Text.RegularExpressions.Regex.Match(c.Status, @"Exited \((\d+)\)");
+                            var exitCode = exitMatch.Success ? int.Parse(exitMatch.Groups[1].Value) : -1;
+
+                            if (exitCode != 0)
+                            {
+                                AddAlert("crash", name, $"Exited with code {exitCode}", c.ID, hostId, hostConfig.Name);
+                            }
+                        }
+
+                        if (c.State == "restarting")
+                        {
+                            AddAlert("restarting", name, "Container is restart-looping", c.ID, hostId, hostConfig.Name);
                         }
                     }
-
-                    // Detect containers in restarting state
-                    if (c.State == "restarting")
-                    {
-                        AddAlert("restarting", name, "Container is restart-looping", c.ID);
-                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to check container events");
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to check container events on host {Host}", hostId);
+                }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(30), ct);
         }
     }
 
-    private void AddAlert(string type, string containerName, string message, string containerId)
+    private void AddAlert(string type, string containerName, string message, string containerId, string hostId, string hostName)
     {
         lock (_lock)
         {
-            // Don't duplicate — check if same container+type already alerted in last 5 min
             if (_alerts.Any(a => a.ContainerName == containerName && a.Type == type
-                && a.Timestamp > DateTime.UtcNow.AddMinutes(-5)))
+                && a.HostId == hostId && a.Timestamp > DateTime.UtcNow.AddMinutes(-5)))
                 return;
+
+            var displayName = hostId == "local" ? containerName : $"{containerName} ({hostName})";
 
             _alerts.Insert(0, new ContainerAlert
             {
@@ -99,6 +105,8 @@ public class ContainerEventService : BackgroundService
                 Type = type,
                 ContainerName = containerName,
                 ContainerId = containerId,
+                HostId = hostId,
+                HostName = hostName,
                 Message = message,
                 Timestamp = DateTime.UtcNow
             });
@@ -108,10 +116,9 @@ public class ContainerEventService : BackgroundService
 
             OnAlert?.Invoke();
 
-            // Fire webhook
             _ = Task.Run(async () =>
             {
-                try { await _webhook.SendAlertAsync(containerName, type, message); }
+                try { await _webhook.SendAlertAsync(displayName, type, message); }
                 catch { }
             });
         }
@@ -124,6 +131,8 @@ public class ContainerAlert
     public string Type { get; set; } = "";
     public string ContainerName { get; set; } = "";
     public string ContainerId { get; set; } = "";
+    public string HostId { get; set; } = "local";
+    public string HostName { get; set; } = "Local";
     public string Message { get; set; } = "";
     public DateTime Timestamp { get; set; }
 }

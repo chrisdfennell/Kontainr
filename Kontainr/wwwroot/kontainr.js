@@ -52,6 +52,86 @@ window.kontainr = {
         ctx.lineWidth = 1.5 * (window.devicePixelRatio || 1);
         ctx.stroke();
     },
+    drawChart: function (canvasId, data, labels, color, unit) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !data || data.length === 0) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.width = canvas.offsetWidth * dpr;
+        const h = canvas.height = canvas.offsetHeight * dpr;
+        ctx.clearRect(0, 0, w, h);
+
+        const pad = { top: 10 * dpr, right: 10 * dpr, bottom: 30 * dpr, left: 60 * dpr };
+        const cw = w - pad.left - pad.right;
+        const ch = h - pad.top - pad.bottom;
+
+        const max = Math.max(...data, 1);
+        const step = cw / Math.max(data.length - 1, 1);
+
+        // Grid lines
+        ctx.strokeStyle = 'rgba(128,128,128,0.15)';
+        ctx.lineWidth = dpr;
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (ch / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(pad.left, y);
+            ctx.lineTo(w - pad.right, y);
+            ctx.stroke();
+        }
+
+        // Y-axis labels
+        ctx.fillStyle = 'rgba(128,128,128,0.7)';
+        ctx.font = (10 * dpr) + 'px monospace';
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (ch / 4) * i;
+            let val = max - (max / 4) * i;
+            let label;
+            if (unit === 'bytes') {
+                if (val > 1073741824) label = (val / 1073741824).toFixed(1) + ' GB';
+                else if (val > 1048576) label = (val / 1048576).toFixed(0) + ' MB';
+                else label = (val / 1024).toFixed(0) + ' KB';
+            } else if (unit === '%') {
+                label = val.toFixed(1) + '%';
+            } else {
+                label = val.toFixed(1);
+            }
+            ctx.fillText(label, pad.left - 5 * dpr, y + 3 * dpr);
+        }
+
+        // X-axis labels (show ~6 evenly spaced)
+        ctx.textAlign = 'center';
+        const labelCount = Math.min(6, labels.length);
+        const labelStep = Math.max(1, Math.floor(labels.length / labelCount));
+        for (let i = 0; i < labels.length; i += labelStep) {
+            const x = pad.left + i * step;
+            ctx.fillText(labels[i], x, h - 5 * dpr);
+        }
+
+        // Fill area
+        ctx.beginPath();
+        ctx.moveTo(pad.left, pad.top + ch);
+        for (let i = 0; i < data.length; i++) {
+            const x = pad.left + i * step;
+            const y = pad.top + ch - (data[i] / max) * ch;
+            ctx.lineTo(x, y);
+        }
+        ctx.lineTo(pad.left + (data.length - 1) * step, pad.top + ch);
+        ctx.closePath();
+        ctx.fillStyle = color + '15';
+        ctx.fill();
+
+        // Line
+        ctx.beginPath();
+        for (let i = 0; i < data.length; i++) {
+            const x = pad.left + i * step;
+            const y = pad.top + ch - (data[i] / max) * ch;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.stroke();
+    },
     setTheme: function (theme) {
         document.documentElement.setAttribute('data-theme', theme);
         if (theme === 'light') {

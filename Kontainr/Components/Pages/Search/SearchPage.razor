@@ -114,7 +114,7 @@
         var q = Query.Trim();
 
         var rawContainers = await Docker.GetContainersAsync(true);
-        containers = rawContainers.Select(ContainerViewModel.FromApi)
+        containers = rawContainers.Select(c => ContainerViewModel.FromApi(c))
             .Where(c => c.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Image.Contains(q, StringComparison.OrdinalIgnoreCase))
             .OrderBy(c => c.Name).ToList();
 
@@ -130,7 +130,7 @@
         loading = false;
     }
 
-    private void GoToContainer(string id) => Nav.NavigateTo($"/containers/{id}");
+    private void GoToContainer(string id) => Nav.NavigateTo($"/containers/local/{id}");
 
     private static string FormatSize(long bytes)
     {

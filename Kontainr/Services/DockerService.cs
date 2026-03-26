@@ -8,12 +8,24 @@ public class DockerService : IDisposable
 {
     private readonly DockerClient _client;
 
-    public DockerService()
+    public string HostId { get; }
+    public string HostName { get; }
+
+    public DockerService() : this(CreateLocalClient(), "local", "Local") { }
+
+    public DockerService(DockerClient client, string hostId, string hostName)
+    {
+        _client = client;
+        HostId = hostId;
+        HostName = hostName;
+    }
+
+    private static DockerClient CreateLocalClient()
     {
         if (OperatingSystem.IsWindows())
-            _client = new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
+            return new DockerClientConfiguration(new Uri("npipe://./pipe/docker_engine")).CreateClient();
         else
-            _client = new DockerClientConfiguration(new Uri("unix:///var/run/docker.sock")).CreateClient();
+            return new DockerClientConfiguration(new Uri("unix:///var/run/docker.sock")).CreateClient();
     }
 
     // ── Containers ───────────────────────────────────────────────

@@ -1,6 +1,7 @@
 @page "/settings"
 @rendermode InteractiveServer
 @inject SshSettingsService SshSettings
+@inject DockerHostManager HostManager
 @inject ToastService Toast
 @inject IJSRuntime JS
 
@@ -26,6 +27,105 @@
                 <span style="font-size: 0.72rem; color: var(--k-text-muted);">Used for port links, e.g. http://@(hostUrl):8080. Use hostname or IP, no http:// prefix.</span>
             </div>
         </div>
+    </div>
+
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            Docker Hosts
+            <button class="k-btn k-btn-primary" @onclick="ShowAddHost">Add Host</button>
+        </div>
+
+        @if (showHostForm)
+        {
+            <div class="k-card-body" style="border-bottom: 1px solid var(--k-border);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 600px;">
+                    <div>
+                        <label class="k-form-label">Name</label>
+                        <input class="k-form-input" type="text" placeholder="Production Server" @bind="hostEditName" />
+                    </div>
+                    <div>
+                        <label class="k-form-label">Connection Type</label>
+                        <select class="k-form-input" @bind="hostEditType">
+                            <option value="Tcp">TCP (Docker API)</option>
+                            <option value="SshTunnel">SSH Tunnel</option>
+                        </select>
+                    </div>
+                    @if (hostEditType == "Tcp")
+                    {
+                        <div style="grid-column: span 2;">
+                            <label class="k-form-label">TCP Endpoint</label>
+                            <input class="k-form-input" type="text" placeholder="tcp://192.168.1.100:2375" @bind="hostEditTcpEndpoint" />
+                            <span style="font-size: 0.7rem; color: var(--k-text-muted);">Ensure Docker daemon has TCP enabled: dockerd -H tcp://0.0.0.0:2375</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div>
+                            <label class="k-form-label">SSH Host</label>
+                            <input class="k-form-input" type="text" placeholder="192.168.1.100" @bind="hostEditSshHost" />
+                        </div>
+                        <div>
+                            <label class="k-form-label">SSH Port</label>
+                            <input class="k-form-input" type="number" @bind="hostEditSshPort" />
+                        </div>
+                        <div>
+                            <label class="k-form-label">SSH Username</label>
+                            <input class="k-form-input" type="text" placeholder="root" @bind="hostEditSshUsername" />
+                        </div>
+                        <div>
+                            <label class="k-form-label">SSH Password</label>
+                            <input class="k-form-input" type="password" placeholder="@(hostEditId is not null ? "(unchanged)" : "")" @bind="hostEditSshPassword" />
+                        </div>
+                    }
+                    <div style="grid-column: span 2;">
+                        <label class="k-form-label">Host URL (for port links)</label>
+                        <input class="k-form-input" type="text" placeholder="192.168.1.100 or hostname" @bind="hostEditHostUrl" />
+                        <span style="font-size: 0.7rem; color: var(--k-text-muted);">Optional. Used for clickable port links on containers from this host.</span>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                    <button class="k-btn k-btn-primary" @onclick="SaveHost" disabled="@(string.IsNullOrWhiteSpace(hostEditName))">
+                        @(hostEditId is not null ? "Update" : "Save")
+                    </button>
+                    <button class="k-btn" @onclick="() => showHostForm = false">Cancel</button>
+                    @if (!string.IsNullOrEmpty(hostTestResult))
+                    {
+                        <span style="align-self: center; font-size: 0.8rem; color: @(hostTestSuccess ? "var(--k-green)" : "var(--k-red)");">@hostTestResult</span>
+                    }
+                    <button class="k-btn" @onclick="TestHost" disabled="@hostTesting" style="margin-left: auto;">
+                        @(hostTesting ? "Testing..." : "Test Connection")
+                    </button>
+                </div>
+            </div>
+        }
+
+        @if (dockerHosts.Count > 0)
+        {
+            <table class="k-table">
+                <thead><tr><th>Name</th><th>Type</th><th>Endpoint</th><th style="text-align: right;">Actions</th></tr></thead>
+                <tbody>
+                    @foreach (var h in dockerHosts)
+                    {
+                        <tr>
+                            <td><strong>@h.Name</strong></td>
+                            <td>@h.Type</td>
+                            <td class="k-mono">@(h.Type == DockerHostType.Tcp ? h.TcpEndpoint : $"{h.SshHost}:{h.SshPort}")</td>
+                            <td style="text-align: right;">
+                                <div class="k-btn-group">
+                                    <button class="k-btn k-btn-danger" @onclick="() => RequestDeleteHost(h)">Remove</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (!showHostForm)
+        {
+            <div style="text-align: center; padding: 1.5rem; color: var(--k-text-muted);">
+                Only the local Docker socket is connected. Add remote hosts to manage multiple servers.
+            </div>
+        }
     </div>
 
     <div class="k-card" style="margin-bottom: 1.5rem;">
@@ -293,6 +393,27 @@
         }
     </div>
 
+    <div class="k-card" style="margin-bottom: 1.5rem;">
+        <div class="k-card-header">
+            Metrics Collection
+            <button class="k-btn k-btn-primary" @onclick="SaveMetrics">Save</button>
+        </div>
+        <div class="k-card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 400px;">
+                <div>
+                    <label class="k-form-label">Collection Interval (seconds)</label>
+                    <input class="k-form-input" type="number" min="5" max="300" @bind="metricsInterval" />
+                    <span style="font-size: 0.7rem; color: var(--k-text-muted);">How often to collect CPU/memory/network stats. Default: 15s.</span>
+                </div>
+                <div>
+                    <label class="k-form-label">Retention (days)</label>
+                    <input class="k-form-input" type="number" min="1" max="90" @bind="metricsRetention" />
+                    <span style="font-size: 0.7rem; color: var(--k-text-muted);">How long to keep historical metrics data. Default: 7 days.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="k-card">
         <div class="k-card-header">About Authentication</div>
         <div class="k-card-body" style="font-size: 0.85rem; color: var(--k-text-muted); line-height: 1.6;">
@@ -308,6 +429,21 @@
 
 @code {
     private string hostUrl = "localhost";
+
+    // Docker Hosts
+    private List<DockerHostConfig> dockerHosts = [];
+    private bool showHostForm;
+    private string? hostEditId;
+    private string hostEditName = "", hostEditType = "Tcp";
+    private string hostEditTcpEndpoint = "", hostEditSshHost = "", hostEditSshUsername = "", hostEditSshPassword = "", hostEditHostUrl = "";
+    private int hostEditSshPort = 22;
+    private string hostTestResult = "";
+    private bool hostTestSuccess, hostTesting;
+
+    // Metrics
+    private int metricsInterval = 15;
+    private int metricsRetention = 7;
+
     private List<SshConnectionConfig> connections = [];
     private bool showForm;
     private string? editId;
@@ -349,6 +485,9 @@
     protected override void OnInitialized()
     {
         hostUrl = SshSettings.GetHostUrl();
+        dockerHosts = SshSettings.GetDockerHosts();
+        metricsInterval = SshSettings.GetMetricsCollectionInterval();
+        metricsRetention = SshSettings.GetMetricsRetentionDays();
         LoadConnections();
         var wh = SshSettings.GetWebhook();
         webhookUrl = wh.Url; webhookEnabled = wh.Enabled;
@@ -530,5 +669,87 @@
             importResult = $"Import failed: {ex.Message}";
             importSuccess = false;
         }
+    }
+
+    // ── Docker Hosts ─────────────────────────────────────────────
+
+    private void ShowAddHost()
+    {
+        hostEditId = null; hostEditName = ""; hostEditType = "Tcp";
+        hostEditTcpEndpoint = ""; hostEditSshHost = ""; hostEditSshPort = 22;
+        hostEditSshUsername = ""; hostEditSshPassword = ""; hostEditHostUrl = "";
+        hostTestResult = ""; showHostForm = true;
+    }
+
+    private async Task SaveHost()
+    {
+        if (string.IsNullOrWhiteSpace(hostEditName)) return;
+
+        var config = new DockerHostConfig
+        {
+            Id = hostEditId ?? Guid.NewGuid().ToString("N")[..8],
+            Name = hostEditName.Trim(),
+            Type = Enum.Parse<DockerHostType>(hostEditType),
+            TcpEndpoint = hostEditTcpEndpoint.Trim(),
+            SshHost = hostEditSshHost.Trim(),
+            SshPort = hostEditSshPort,
+            SshUsername = hostEditSshUsername.Trim(),
+            HostUrl = string.IsNullOrWhiteSpace(hostEditHostUrl) ? null : hostEditHostUrl.Trim()
+        };
+
+        // Encrypt password if provided
+        if (!string.IsNullOrEmpty(hostEditSshPassword))
+            config.EncryptedSshPassword = hostEditSshPassword; // DockerHostManager will handle encryption via settings
+
+        try
+        {
+            await HostManager.AddHostAsync(config);
+            Toast.Success("Docker host added");
+            showHostForm = false;
+            dockerHosts = SshSettings.GetDockerHosts();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to add host: {ex.Message}");
+        }
+    }
+
+    private async Task TestHost()
+    {
+        hostTesting = true; hostTestResult = "Testing..."; hostTestSuccess = false;
+        StateHasChanged();
+
+        var config = new DockerHostConfig
+        {
+            Name = hostEditName.Trim(),
+            Type = Enum.Parse<DockerHostType>(hostEditType),
+            TcpEndpoint = hostEditTcpEndpoint.Trim(),
+            SshHost = hostEditSshHost.Trim(),
+            SshPort = hostEditSshPort,
+            SshUsername = hostEditSshUsername.Trim(),
+            EncryptedSshPassword = hostEditSshPassword // plain text for testing
+        };
+
+        var (success, message) = await HostManager.TestConnectionAsync(config);
+        hostTestResult = message;
+        hostTestSuccess = success;
+        hostTesting = false;
+    }
+
+    private void RequestDeleteHost(DockerHostConfig h) =>
+        ShowConfirm("Remove Docker Host", $"Remove Docker host \"{h.Name}\"? You can re-add it later.", "Remove", () =>
+        {
+            HostManager.RemoveHost(h.Id);
+            Toast.Success("Docker host removed");
+            dockerHosts = SshSettings.GetDockerHosts();
+            return Task.CompletedTask;
+        });
+
+    // ── Metrics ──────────────────────────────────────────────────
+
+    private void SaveMetrics()
+    {
+        SshSettings.SaveMetricsSettings(metricsInterval, metricsRetention);
+        Toast.Success("Metrics settings saved");
     }
 }

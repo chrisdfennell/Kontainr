@@ -269,7 +269,7 @@
     [JSInvokable]
     public void NavigateToContainer(string containerId)
     {
-        InvokeAsync(() => Nav.NavigateTo($"/containers/{containerId}"));
+        InvokeAsync(() => Nav.NavigateTo($"/containers/local/{containerId}"));
     }
 
     public async ValueTask DisposeAsync()

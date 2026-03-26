@@ -319,7 +319,7 @@
                 Toast.Success($"Container '{(string.IsNullOrWhiteSpace(name) ? result.ID[..12] : name)}' created");
             }
 
-            Nav.NavigateTo($"/containers/{result.ID}");
+            Nav.NavigateTo($"/containers/local/{result.ID}");
         }
         catch (Exception ex)
         {

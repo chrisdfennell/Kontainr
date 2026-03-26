@@ -15,6 +15,8 @@ public class ContainerViewModel
     public string? HealthStatus { get; set; }
     public DateTime Created { get; set; }
     public IList<Port> Ports { get; set; } = [];
+    public string HostId { get; set; } = "local";
+    public string HostName { get; set; } = "Local";
 
     public string PortDisplay => Ports.Count == 0
         ? "-"
@@ -47,7 +49,7 @@ public class ContainerViewModel
         _ => ""
     };
 
-    public static ContainerViewModel FromApi(ContainerListResponse c)
+    public static ContainerViewModel FromApi(ContainerListResponse c, string hostId = "local", string hostName = "Local")
     {
         var labels = c.Labels ?? new Dictionary<string, string>();
         // Health status is in the Status string like "Up 2 hours (healthy)"
@@ -67,7 +69,9 @@ public class ContainerViewModel
             ComposeProject = labels.TryGetValue("com.docker.compose.project", out var proj) ? proj : null,
             ComposeService = labels.TryGetValue("com.docker.compose.service", out var svc) ? svc : null,
             Created = c.Created,
-            Ports = c.Ports
+            Ports = c.Ports,
+            HostId = hostId,
+            HostName = hostName
         };
     }
 }

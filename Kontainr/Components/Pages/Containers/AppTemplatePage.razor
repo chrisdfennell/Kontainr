@@ -236,7 +236,7 @@
             Toast.Success($"{selectedTemplate.Name} deployed!");
             selectedTemplate = null;
             deployStatus = "";
-            Nav.NavigateTo($"/containers/{result.ID}");
+            Nav.NavigateTo($"/containers/local/{result.ID}");
         }
         catch (Exception ex)
         {
