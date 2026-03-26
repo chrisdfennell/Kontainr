@@ -9,7 +9,12 @@
 <p align="center">
   <a href="https://github.com/chrisdfennell/Kontainr/actions"><img src="https://github.com/chrisdfennell/Kontainr/actions/workflows/docker-publish.yml/badge.svg" alt="CI/CD"></a>
   <a href="https://hub.docker.com/r/fennch/kontainr"><img src="https://img.shields.io/docker/pulls/fennch/kontainr" alt="Docker Pulls"></a>
+  <a href="https://hub.docker.com/r/fennch/kontainr"><img src="https://img.shields.io/docker/image-size/fennch/kontainr/latest" alt="Docker Image Size"></a>
+  <a href="https://hub.docker.com/r/fennch/kontainr"><img src="https://img.shields.io/docker/v/fennch/kontainr?sort=semver" alt="Docker Version"></a>
   <a href="https://github.com/chrisdfennell/Kontainr/releases"><img src="https://img.shields.io/github/v/release/chrisdfennell/Kontainr" alt="Release"></a>
+  <a href="https://github.com/chrisdfennell/Kontainr"><img src="https://img.shields.io/github/stars/chrisdfennell/Kontainr?style=flat" alt="Stars"></a>
+  <a href="https://github.com/chrisdfennell/Kontainr/issues"><img src="https://img.shields.io/github/issues/chrisdfennell/Kontainr" alt="Issues"></a>
+  <a href="https://github.com/chrisdfennell/Kontainr/commits/main"><img src="https://img.shields.io/github/last-commit/chrisdfennell/Kontainr" alt="Last Commit"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/chrisdfennell/Kontainr" alt="License"></a>
 </p>
 
