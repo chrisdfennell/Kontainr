@@ -943,6 +943,7 @@ html, body {
 }
 
 .k-theme-toggle:hover { color: var(--k-text); border-color: var(--k-text-muted); }
+.k-theme-moon { display: none; }
 
 /* ── Alert Banner ─────────────────────────────────────────────── */
 
