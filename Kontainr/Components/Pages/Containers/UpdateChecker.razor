@@ -44,7 +44,13 @@
                         @foreach (var c in containers.Where(c => updateResults.GetValueOrDefault(c.Id) == true))
                         {
                             <tr>
-                                <td><strong>@c.Name</strong></td>
+                                <td>
+                                    <strong>@c.Name</strong>
+                                    @if (Docker.IsSelf(c.Id))
+                                    {
+                                        <span class="k-badge" style="margin-left: 0.4rem; background: rgba(88,166,255,0.15); color: var(--k-accent); font-size: 0.65rem;">self</span>
+                                    }
+                                </td>
                                 <td class="k-mono">@c.Image</td>
                                 <td><span class="k-badge" style="background: rgba(63, 185, 80, 0.15); color: var(--k-green);">Update available</span></td>
                                 <td style="text-align: right;">
