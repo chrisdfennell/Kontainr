@@ -971,6 +971,13 @@ html, body {
     transition: border-color 0.15s;
     overflow: hidden;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.k-template-card > button:last-child,
+.k-template-card > .k-btn:last-child {
+    margin-top: auto;
 }
 
 .k-template-card:hover {
