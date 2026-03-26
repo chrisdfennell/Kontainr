@@ -62,8 +62,8 @@ window.kontainr = {
         // Toggle icon visibility
         var sun = document.querySelector('.k-theme-sun');
         var moon = document.querySelector('.k-theme-moon');
-        if (sun) sun.style.display = theme === 'dark' ? '' : 'none';
-        if (moon) moon.style.display = theme === 'light' ? '' : 'none';
+        if (sun) sun.style.display = theme === 'dark' ? 'block' : 'none';
+        if (moon) moon.style.display = theme === 'light' ? 'block' : 'none';
     },
     _themeRef: null,
     registerThemeRef: function (ref) {
