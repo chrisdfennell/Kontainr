@@ -41,12 +41,14 @@
 - **Update Checker** — scan all containers for newer registry images, with "self" badge identifying Kontainr's own container
 - **Scheduled Restarts** — cron-style scheduled container restarts (daily, weekly, or interval-based)
 - **Docker Compose Deploy** — upload or paste a `docker-compose.yml` and deploy stacks from the UI
+- **Docker Compose Export** — export any container's configuration as a `docker-compose.yml` with ports, volumes, env vars, networks, and resource limits
 - **Docker Compose Grouping** — containers grouped by project with bulk start/stop/restart
 - **Health Check Badges** — healthy/unhealthy/starting indicators on containers
 
 ### Monitoring
 - **CPU/RAM Sparkline Graphs** — resource usage over time on container detail pages
 - **Live Log Streaming** — real-time `docker logs -f` with search/filter
+- **Log Pattern Alerts** — monitor container logs for user-defined regex or text patterns and trigger webhook alerts on match, with cooldown to prevent spam
 - **Log Export** — download container logs as a text file
 - **Auto-Refresh** — configurable 3s/5s/10s/30s polling with visual indicator
 - **Clickable Port Links** — port mappings link directly to the service, configurable host URL
@@ -73,13 +75,14 @@
 ### Settings & Security
 - **Basic Auth** — optional password protection via environment variables
 - **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
-- **Webhook Notifications** — Discord, Slack, or generic HTTP alerts for container crashes
+- **Webhook Notifications** — Discord, Slack, ntfy, or generic HTTP alerts for container crashes and log pattern matches
 - **Configurable Host URL** — port links use your NAS hostname instead of localhost
 - **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
 - **Backup & Restore** — export/import all settings as JSON
 - **Global Search** — search containers, images, volumes, and networks from any page
 - **Audit Log** — tracks all actions with timestamps
 - **Dark/Light Theme** — toggle between dark and light mode, persisted to settings
+- **Mobile Responsive** — fully responsive layout with collapsible sidebar, flexible grids, and touch-friendly UI for tablets and phones
 
 ## Quick Start
 
@@ -157,9 +160,9 @@ Mount a volume to `/app/data` to persist:
 ### Webhook Notifications
 
 1. Go to **Settings** > **Webhook Notifications**
-2. Paste a Discord webhook URL, Slack webhook URL, or any HTTP endpoint
-3. Enable notifications and choose alert types (crash, restart loop)
-4. Kontainr auto-detects the URL format and sends rich embeds for Discord, formatted messages for Slack, or generic JSON for everything else
+2. Paste a Discord webhook URL, Slack webhook URL, ntfy topic URL, or any HTTP endpoint
+3. Enable notifications and choose alert types (crash, restart loop, log pattern match)
+4. Kontainr auto-detects the URL format and sends rich embeds for Discord, formatted messages for Slack, priority-tagged messages for ntfy, or generic JSON for everything else
 
 ### Port Link Host URL
 
