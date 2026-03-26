@@ -1000,6 +1000,13 @@ html, body {
     letter-spacing: 0.04em;
 }
 
+.k-template-description {
+    font-size: 0.75rem;
+    color: var(--k-text-muted);
+    line-height: 1.4;
+    margin-bottom: 0.5rem;
+}
+
 .k-template-card .k-mono {
     overflow: hidden;
     text-overflow: ellipsis;

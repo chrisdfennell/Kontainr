@@ -153,6 +153,10 @@
                     }
                 </div>
                 <div class="k-mono" style="font-size: 0.72rem; color: var(--k-text-muted); margin: 0.4rem 0;">@tmpl.Image</div>
+                @if (!string.IsNullOrEmpty(tmpl.Description))
+                {
+                    <div class="k-template-description">@tmpl.Description</div>
+                }
                 @if (tmpl.Ports.Count > 0)
                 {
                     <div style="margin-bottom: 0.5rem;">
@@ -218,7 +222,8 @@
                 result = result.Where(t =>
                     t.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                     t.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                    t.Image.Contains(search, StringComparison.OrdinalIgnoreCase));
+                    t.Image.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    t.Description.Contains(search, StringComparison.OrdinalIgnoreCase));
             return result;
         }
     }
