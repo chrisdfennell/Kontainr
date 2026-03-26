@@ -1,4 +1,17 @@
 window.kontainr = {
+    initGlobalSearch: function () {
+        var input = document.getElementById('k-global-search-input');
+        if (!input) return;
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                var q = input.value.trim();
+                if (q) {
+                    window.location.href = '/search?q=' + encodeURIComponent(q);
+                    input.value = '';
+                }
+            }
+        });
+    },
     scrollToBottom: function (elementId) {
         const el = document.getElementById(elementId);
         if (el) el.scrollTop = el.scrollHeight;
@@ -43,6 +56,23 @@ window.kontainr = {
             document.body.classList.add('k-light');
         } else {
             document.body.classList.remove('k-light');
+        }
+        // Toggle icon visibility
+        var sun = document.querySelector('.k-theme-sun');
+        var moon = document.querySelector('.k-theme-moon');
+        if (sun) sun.style.display = theme === 'dark' ? '' : 'none';
+        if (moon) moon.style.display = theme === 'light' ? '' : 'none';
+    },
+    _themeRef: null,
+    registerThemeRef: function (ref) {
+        this._themeRef = ref;
+    },
+    toggleTheme: function () {
+        var current = document.documentElement.getAttribute('data-theme') || 'dark';
+        var next = current === 'dark' ? 'light' : 'dark';
+        this.setTheme(next);
+        if (this._themeRef) {
+            this._themeRef.invokeMethodAsync('OnThemeChanged', next);
         }
     },
     downloadText: function (filename, text) {
