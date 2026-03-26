@@ -342,6 +342,10 @@
                     <tr class="k-clickable" @onclick="() => NavigateToContainer(c.Id)">
                         <td class="col-name">
                             <strong>@c.Name</strong>
+                            @if (Docker.IsSelf(c.Id))
+                            {
+                                <span class="k-badge" style="margin-left: 0.4rem; background: rgba(88,166,255,0.15); color: var(--k-accent); font-size: 0.65rem;">self</span>
+                            }
                             @if (c.ComposeService is not null)
                             {
                                 <br /><span style="font-size: 0.75rem; color: var(--k-text-muted);">service: @c.ComposeService</span>
