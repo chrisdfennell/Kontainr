@@ -39,7 +39,11 @@ window.kontainr = {
     },
     setTheme: function (theme) {
         document.documentElement.setAttribute('data-theme', theme);
-        document.body.className = theme === 'light' ? 'k-light' : '';
+        if (theme === 'light') {
+            document.body.classList.add('k-light');
+        } else {
+            document.body.classList.remove('k-light');
+        }
     },
     downloadText: function (filename, text) {
         const blob = new Blob([text], { type: 'text/plain' });
