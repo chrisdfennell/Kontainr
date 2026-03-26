@@ -23,6 +23,7 @@ public class AppSettings
     public List<RegistryConfig> Registries { get; set; } = [];
     public List<LogAlertRule> LogAlertRules { get; set; } = [];
     public List<DockerHostConfig> DockerHosts { get; set; } = [];
+    public string TimeZoneId { get; set; } = "";
     public int MetricsCollectionIntervalSeconds { get; set; } = 15;
     public int MetricsRetentionDays { get; set; } = 7;
 }

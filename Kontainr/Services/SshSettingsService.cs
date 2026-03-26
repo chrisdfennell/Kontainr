@@ -292,6 +292,26 @@ public class SshSettingsService
         }
     }
 
+    // ── Time Zone ──────────────────────────────────────────────
+
+    public string GetTimeZoneId()
+    {
+        lock (_lock) { return Load().TimeZoneId; }
+    }
+
+    public void SetTimeZoneId(string timeZoneId)
+    {
+        lock (_lock) { var s = Load(); s.TimeZoneId = timeZoneId; Save(s); }
+    }
+
+    public TimeZoneInfo GetTimeZone()
+    {
+        var id = GetTimeZoneId();
+        if (string.IsNullOrEmpty(id)) return TimeZoneInfo.Local;
+        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+        catch { return TimeZoneInfo.Local; }
+    }
+
     // ── Metrics Settings ────────────────────────────────────────
 
     public int GetMetricsCollectionInterval()
