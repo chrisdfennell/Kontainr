@@ -12,20 +12,22 @@ let autoRetryTimer = null;
 let autoRetryCount = 0;
 
 function handleReconnectStateChanged(event) {
-    if (event.detail.state === "show") {
+    const state = event.detail.state;
+    if (state === "show") {
         reconnectModal.showModal();
-        // Start auto-retrying immediately
         autoRetryCount = 0;
         scheduleAutoRetry(1000);
-    } else if (event.detail.state === "hide") {
+    } else if (state === "hide") {
         clearAutoRetry();
         reconnectModal.close();
-    } else if (event.detail.state === "failed") {
-        // Keep retrying automatically
-        scheduleAutoRetry(2000);
-        document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
-    } else if (event.detail.state === "rejected") {
+    } else if (state === "failed" || state === "resume-failed") {
+        // Connection lost or resume failed — just reload the page
         location.reload();
+    } else if (state === "rejected") {
+        location.reload();
+    } else if (state === "paused") {
+        // Server paused the session — try to resume, if that fails reload
+        tryResume();
     }
 }
 
@@ -43,30 +45,30 @@ function clearAutoRetry() {
 
 async function retry() {
     clearAutoRetry();
-    document.removeEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     autoRetryCount++;
 
     try {
         const successful = await Blazor.reconnect();
         if (!successful) {
-            // Server is up but circuit is gone (container was restarted) — just reload
-            const resumeSuccessful = await Blazor.resumeCircuit();
-            if (!resumeSuccessful) {
-                location.reload();
-            } else {
-                reconnectModal.close();
-            }
+            // Server is up but circuit is gone (container restarted) — reload
+            location.reload();
         }
     } catch (err) {
         // Server unreachable — retry with backoff (1s, 2s, 3s... max 5s)
         const delay = Math.min(autoRetryCount * 1000, 5000);
         scheduleAutoRetry(delay);
-        document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     }
 }
 
-async function retryWhenDocumentBecomesVisible() {
-    if (document.visibilityState === "visible") {
-        await retry();
+async function tryResume() {
+    try {
+        const successful = await Blazor.resumeCircuit();
+        if (!successful) {
+            location.reload();
+        } else {
+            reconnectModal.close();
+        }
+    } catch {
+        location.reload();
     }
 }
