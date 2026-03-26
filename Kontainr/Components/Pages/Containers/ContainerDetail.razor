@@ -31,8 +31,19 @@
             }
             <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
             <button class="k-btn" @onclick="CloneContainer" disabled="@acting" title="Clone this container">Clone</button>
-            <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="Pull latest image and recreate container">
-                @(recreating ? recreateStatus : "Update")
+            <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="@(isSelf ? "Update Kontainr (self-update)" : "Pull latest image and recreate container")">
+                @if (recreating)
+                {
+                    @recreateStatus
+                }
+                else if (isSelf)
+                {
+                    <span>Update Kontainr</span>
+                }
+                else
+                {
+                    <span>Update</span>
+                }
             </button>
             @if (inspect?.State?.Running == true)
             {
@@ -313,6 +324,7 @@
     private long? memLimit;
     private bool recreating;
     private string recreateStatus = "";
+    private bool isSelf;
 
     // Log streaming
     private bool logStreaming;
@@ -359,6 +371,7 @@
                 Image = inspect.Config.Image,
                 State = inspect.State.Status
             };
+            isSelf = Docker.IsSelf(inspect.ID);
             inspectJson = System.Text.Json.JsonSerializer.Serialize(inspect, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
             // Fetch stats if running
@@ -623,30 +636,79 @@
             acting = false;
         });
 
-    private void RequestRecreate() =>
-        ShowConfirm("Update Container", $"Pull latest image for \"{container?.Name}\" and recreate with the same configuration?\n\nThe container will be stopped and removed, then recreated.", "Update", async () =>
+    private void RequestRecreate()
+    {
+        if (isSelf)
         {
-            recreating = true;
-            recreateStatus = "Starting...";
-            StateHasChanged();
+            ShowConfirm("Update Kontainr", $"This will update Kontainr itself. A temporary updater container will handle the swap — the page will reload automatically when the new version starts.", "Update Kontainr", async () =>
+            {
+                recreating = true;
+                recreateStatus = "Starting self-update...";
+                StateHasChanged();
+                try
+                {
+                    await Docker.SelfUpdateAsync(ContainerId, status =>
+                    {
+                        recreateStatus = status;
+                        InvokeAsync(StateHasChanged);
+                    });
+                    // The updater container will restart us — start polling for the new instance
+                    recreateStatus = "Kontainr is restarting — page will reload...";
+                    StateHasChanged();
+                    await PollForReload();
+                }
+                catch (Exception ex)
+                {
+                    Toast.Error($"Self-update failed: {ex.Message}");
+                    recreating = false;
+                    recreateStatus = "";
+                    await LoadAsync();
+                }
+            });
+        }
+        else
+        {
+            ShowConfirm("Update Container", $"Pull latest image for \"{container?.Name}\" and recreate with the same configuration?\n\nThe container will be stopped and removed, then recreated.", "Update", async () =>
+            {
+                recreating = true;
+                recreateStatus = "Starting...";
+                StateHasChanged();
+                try
+                {
+                    var newId = await Docker.RecreateContainerAsync(ContainerId, status =>
+                    {
+                        recreateStatus = status;
+                        InvokeAsync(StateHasChanged);
+                    });
+                    Toast.Success($"Container updated successfully");
+                    Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+                }
+                catch (Exception ex)
+                {
+                    Toast.Error($"Update failed: {ex.Message}");
+                    recreating = false;
+                    recreateStatus = "";
+                    await LoadAsync();
+                }
+            });
+        }
+    }
+
+    private async Task PollForReload()
+    {
+        // After the updater starts, Kontainr will be stopped and restarted.
+        // Poll the page URL to detect when the new instance is up, then reload.
+        await Task.Delay(8000); // wait for the updater to do its thing
+        for (var i = 0; i < 30; i++)
+        {
             try
             {
-                var newId = await Docker.RecreateContainerAsync(ContainerId, status =>
-                {
-                    recreateStatus = status;
-                    InvokeAsync(StateHasChanged);
-                });
-                Toast.Success($"Container updated successfully");
-                Nav.NavigateTo($"/containers/{newId}", forceLoad: true);
+                await JS.InvokeVoidAsync("eval", "fetch('/').then(r => { if(r.ok) location.reload(); })");
             }
-            catch (Exception ex)
-            {
-                Toast.Error($"Update failed: {ex.Message}");
-                recreating = false;
-                recreateStatus = "";
-                await LoadAsync();
-            }
-        });
+            catch { }
+            await Task.Delay(2000);
+        }
+    }
 
     private void SetTabOverview() => activeTab = "overview";
     private void SetTabInspect() => activeTab = "inspect";
