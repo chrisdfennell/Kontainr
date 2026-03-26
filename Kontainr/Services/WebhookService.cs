@@ -22,6 +22,7 @@ public class WebhookService
         if (!config.Enabled || string.IsNullOrWhiteSpace(config.Url)) return;
         if (alertType == "crash" && !config.OnCrash) return;
         if (alertType == "restarting" && !config.OnRestartLoop) return;
+        if (alertType == "log-pattern" && !config.OnLogPattern) return;
 
         try
         {
@@ -36,6 +37,11 @@ public class WebhookService
             else if (url.Contains("hooks.slack.com"))
             {
                 await SendSlackAsync(url, containerName, alertType, message);
+            }
+            // Detect Ntfy
+            else if (url.Contains("ntfy.sh/") || url.Contains("/ntfy/"))
+            {
+                await SendNtfyAsync(url, containerName, alertType, message);
             }
             // Generic JSON POST
             else
@@ -85,6 +91,20 @@ public class WebhookService
 
         var json = JsonSerializer.Serialize(payload);
         await _http.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
+    }
+
+    private async Task SendNtfyAsync(string url, string container, string type, string message)
+    {
+        var priority = type == "crash" ? "high" : "default";
+        var tags = type == "crash" ? "rotating_light,docker" : "warning,docker";
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(message, Encoding.UTF8, "text/plain")
+        };
+        request.Headers.Add("Title", $"Kontainr: {container}");
+        request.Headers.Add("Priority", priority);
+        request.Headers.Add("Tags", tags);
+        await _http.SendAsync(request);
     }
 
     private async Task SendGenericAsync(string url, string container, string type, string message)

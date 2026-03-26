@@ -4,9 +4,13 @@
 @implements IDisposable
 
 <div class="k-layout">
+    <div class="k-sidebar-overlay" id="k-sidebar-overlay" onclick="kontainr.closeSidebar()"></div>
     <NavMenu />
     <div class="k-main">
         <div class="k-global-bar">
+            <button class="k-menu-toggle" onclick="kontainr.toggleSidebar()" title="Toggle menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
             <div class="k-global-search-wrap">
                 <input id="k-global-search-input" class="k-global-search" type="text"
                        placeholder="Search containers, images, volumes..."

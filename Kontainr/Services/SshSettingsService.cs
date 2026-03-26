@@ -263,6 +263,35 @@ public class SshSettingsService
         }
     }
 
+    // ── Log Alert Rules ──────────────────────────────────────────
+
+    public List<LogAlertRule> GetLogAlertRules()
+    {
+        lock (_lock) { return Load().LogAlertRules.ToList(); }
+    }
+
+    public void SaveLogAlertRule(LogAlertRule rule)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            var existing = s.LogAlertRules.FirstOrDefault(r => r.Id == rule.Id);
+            if (existing is not null) s.LogAlertRules.Remove(existing);
+            s.LogAlertRules.Add(rule);
+            Save(s);
+        }
+    }
+
+    public void DeleteLogAlertRule(string id)
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            s.LogAlertRules.RemoveAll(r => r.Id == id);
+            Save(s);
+        }
+    }
+
     // ── Persistence ──────────────────────────────────────────────
 
     private AppSettings Load()

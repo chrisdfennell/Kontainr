@@ -552,6 +552,160 @@ public class DockerService : IDisposable
         }
     }
 
+    // ── Export to docker-compose ──────────────────────────────────
+
+    public async Task<string> ExportComposeAsync(params string[] containerIds)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("services:");
+
+        foreach (var id in containerIds)
+        {
+            var inspect = await InspectContainerAsync(id);
+            var name = inspect.Name.TrimStart('/');
+            var serviceName = inspect.Config.Labels is not null && inspect.Config.Labels.TryGetValue("com.docker.compose.service", out var svc) ? svc : name;
+
+            sb.AppendLine($"  {serviceName}:");
+            sb.AppendLine($"    image: {inspect.Config.Image}");
+            sb.AppendLine($"    container_name: {name}");
+
+            // Restart policy
+            var rp = inspect.HostConfig.RestartPolicy?.Name;
+            if (rp is not null && rp != RestartPolicyKind.Undefined && rp != RestartPolicyKind.No)
+            {
+                var rpStr = rp switch
+                {
+                    RestartPolicyKind.Always => "always",
+                    RestartPolicyKind.UnlessStopped => "unless-stopped",
+                    RestartPolicyKind.OnFailure => inspect.HostConfig.RestartPolicy.MaximumRetryCount > 0
+                        ? $"on-failure:{inspect.HostConfig.RestartPolicy.MaximumRetryCount}"
+                        : "on-failure",
+                    _ => "no"
+                };
+                sb.AppendLine($"    restart: {rpStr}");
+            }
+
+            // Ports
+            if (inspect.HostConfig.PortBindings?.Count > 0)
+            {
+                sb.AppendLine("    ports:");
+                foreach (var (containerPort, bindings) in inspect.HostConfig.PortBindings)
+                {
+                    if (bindings is null) continue;
+                    foreach (var b in bindings)
+                    {
+                        var hostPart = string.IsNullOrEmpty(b.HostIP) || b.HostIP == "0.0.0.0" ? "" : $"{b.HostIP}:";
+                        sb.AppendLine($"      - \"{hostPart}{b.HostPort}:{containerPort}\"");
+                    }
+                }
+            }
+
+            // Volumes
+            if (inspect.HostConfig.Binds?.Count > 0)
+            {
+                sb.AppendLine("    volumes:");
+                foreach (var bind in inspect.HostConfig.Binds)
+                    sb.AppendLine($"      - {bind}");
+            }
+
+            // Environment
+            if (inspect.Config.Env?.Count > 0)
+            {
+                sb.AppendLine("    environment:");
+                foreach (var env in inspect.Config.Env)
+                    sb.AppendLine($"      - {env}");
+            }
+
+            // Network
+            if (!string.IsNullOrEmpty(inspect.HostConfig.NetworkMode) && inspect.HostConfig.NetworkMode != "default"
+                && inspect.HostConfig.NetworkMode != "bridge")
+            {
+                sb.AppendLine("    networks:");
+                sb.AppendLine($"      - {inspect.HostConfig.NetworkMode}");
+            }
+
+            // Command
+            if (inspect.Config.Cmd?.Count > 0)
+            {
+                var cmd = string.Join(" ", inspect.Config.Cmd);
+                sb.AppendLine($"    command: {cmd}");
+            }
+
+            // Working dir
+            if (!string.IsNullOrEmpty(inspect.Config.WorkingDir))
+                sb.AppendLine($"    working_dir: {inspect.Config.WorkingDir}");
+
+            // Resource limits
+            if (inspect.HostConfig.NanoCPUs > 0 || inspect.HostConfig.Memory > 0)
+            {
+                sb.AppendLine("    deploy:");
+                sb.AppendLine("      resources:");
+                sb.AppendLine("        limits:");
+                if (inspect.HostConfig.NanoCPUs > 0)
+                    sb.AppendLine($"          cpus: \"{inspect.HostConfig.NanoCPUs / 1_000_000_000.0}\"");
+                if (inspect.HostConfig.Memory > 0)
+                    sb.AppendLine($"          memory: {inspect.HostConfig.Memory / (1024 * 1024)}M");
+            }
+
+            // Labels (exclude docker compose internal labels)
+            var labels = inspect.Config.Labels?
+                .Where(l => !l.Key.StartsWith("com.docker.compose."))
+                .Where(l => !l.Key.StartsWith("org.opencontainers."))
+                .ToList();
+            if (labels?.Count > 0)
+            {
+                sb.AppendLine("    labels:");
+                foreach (var (key, value) in labels)
+                    sb.AppendLine($"      - \"{key}={value}\"");
+            }
+
+            sb.AppendLine();
+        }
+
+        // Collect named volumes
+        var namedVolumes = new HashSet<string>();
+        foreach (var id in containerIds)
+        {
+            var inspect = await InspectContainerAsync(id);
+            if (inspect.HostConfig.Binds is null) continue;
+            foreach (var bind in inspect.HostConfig.Binds)
+            {
+                var parts = bind.Split(':');
+                if (parts.Length >= 2 && !parts[0].Contains('/') && !parts[0].Contains('\\'))
+                    namedVolumes.Add(parts[0]);
+            }
+        }
+
+        if (namedVolumes.Count > 0)
+        {
+            sb.AppendLine("volumes:");
+            foreach (var vol in namedVolumes)
+                sb.AppendLine($"  {vol}:");
+        }
+
+        // Collect custom networks
+        var customNetworks = new HashSet<string>();
+        foreach (var id in containerIds)
+        {
+            var inspect = await InspectContainerAsync(id);
+            var net = inspect.HostConfig.NetworkMode;
+            if (!string.IsNullOrEmpty(net) && net != "default" && net != "bridge" && net != "host" && net != "none")
+                customNetworks.Add(net);
+        }
+
+        if (customNetworks.Count > 0)
+        {
+            sb.AppendLine("networks:");
+            foreach (var net in customNetworks)
+            {
+                sb.AppendLine($"  {net}:");
+                sb.AppendLine("    external: true");
+            }
+        }
+
+        return sb.ToString();
+    }
+
     // ── Prune ────────────────────────────────────────────────────
 
     public async Task<ContainersPruneResponse> PruneContainersAsync()

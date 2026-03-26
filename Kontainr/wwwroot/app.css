@@ -516,23 +516,131 @@ html, body {
     margin-bottom: 1rem;
 }
 
+/* ── Mobile hamburger toggle ──────────────────────────────────── */
+
+.k-menu-toggle {
+    display: none;
+    background: none;
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    color: var(--k-text);
+    cursor: pointer;
+    z-index: 200;
+}
+
+.k-sidebar-overlay {
+    display: none;
+}
+
 /* ── Responsive ───────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
-    .k-sidebar {
-        width: 60px;
+    .k-menu-toggle {
+        display: flex;
+        align-items: center;
     }
-    .k-sidebar-brand span,
-    .k-nav-link span,
-    .k-nav-section {
+
+    .k-sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 150;
+    }
+
+    .k-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .k-sidebar-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 140;
         display: none;
     }
-    .k-main {
-        margin-left: 60px;
+
+    .k-sidebar-overlay.open {
+        display: block;
     }
-    .k-nav-link {
-        justify-content: center;
-        padding: 0.6rem;
+
+    .k-main {
+        margin-left: 0;
+    }
+
+    .k-topbar {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .k-topbar h1 {
+        font-size: 0.95rem;
+    }
+
+    .k-btn-group {
+        flex-wrap: wrap;
+    }
+
+    .k-content {
+        padding: 0.75rem;
+    }
+
+    .k-stat-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .k-stat-value {
+        font-size: 1.25rem;
+    }
+
+    .k-table {
+        table-layout: auto;
+        font-size: 0.78rem;
+    }
+
+    .k-table th, .k-table td {
+        padding: 0.4rem 0.5rem;
+    }
+
+    .k-table .col-cpu,
+    .k-table .col-mem,
+    .k-table .col-image {
+        display: none;
+    }
+
+    .k-detail-grid {
+        grid-template-columns: 120px 1fr;
+    }
+
+    .k-global-search {
+        width: 140px;
+    }
+
+    .k-global-bar {
+        padding: 0.3rem 0.75rem;
+    }
+
+    .k-search {
+        width: 150px;
+    }
+
+    .k-tabs {
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .k-template-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    }
+
+    .k-modal {
+        width: 95vw;
+    }
+
+    .k-card-header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 }
 

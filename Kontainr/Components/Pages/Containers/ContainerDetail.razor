@@ -34,6 +34,10 @@
                 </a>
             }
             <a href="/containers/@ContainerId/edit" class="k-btn" style="text-decoration: none;" title="Edit configuration">Edit</a>
+            <button class="k-btn" @onclick="ExportCompose" disabled="@acting" title="Export as docker-compose.yml">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Compose
+            </button>
             <button class="k-btn" @onclick="CloneContainer" disabled="@acting" title="Clone this container">Clone</button>
             <button class="k-btn k-btn-primary" @onclick="RequestRecreate" disabled="@(acting || recreating)" title="@(isSelf ? "Update Kontainr (self-update)" : "Pull latest image and recreate container")">
                 @if (recreating)
@@ -713,6 +717,18 @@
             catch { }
             await Task.Delay(2000);
         }
+    }
+
+    private async Task ExportCompose()
+    {
+        try
+        {
+            var yaml = await Docker.ExportComposeAsync(ContainerId);
+            var fileName = $"{container?.Name ?? "container"}-compose.yml";
+            await JS.InvokeVoidAsync("kontainr.downloadText", fileName, yaml);
+            Toast.Success("Exported docker-compose.yml");
+        }
+        catch (Exception ex) { Toast.Error($"Export failed: {ex.Message}"); }
     }
 
     private void SetTabOverview() => activeTab = "overview";
