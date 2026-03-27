@@ -15,18 +15,22 @@ public class ContainerViewModel
     public string? HealthStatus { get; set; }
     public DateTime Created { get; set; }
     public IList<Port> Ports { get; set; } = [];
+    public bool IsHostNetwork { get; set; }
     public string HostId { get; set; } = "local";
     public string HostName { get; set; } = "Local";
 
     public string PortDisplay => Ports.Count == 0
         ? "-"
-        : string.Join(", ", Ports
-            .Where(p => p.PublicPort > 0)
-            .Select(p => $"{p.PublicPort}:{p.PrivatePort}/{p.Type}"));
+        : string.Join(", ", IsHostNetwork
+            ? Ports.Select(p => $"{p.PrivatePort}/{p.Type}")
+            : Ports.Where(p => p.PublicPort > 0)
+                .Select(p => $"{p.PublicPort}:{p.PrivatePort}/{p.Type}"));
 
     public IEnumerable<(ushort PublicPort, ushort PrivatePort, string Type)> PublicPorts =>
-        Ports.Where(p => p.PublicPort > 0)
-            .Select(p => (p.PublicPort, p.PrivatePort, p.Type));
+        IsHostNetwork
+            ? Ports.Select(p => (p.PrivatePort, p.PrivatePort, p.Type))
+            : Ports.Where(p => p.PublicPort > 0)
+                .Select(p => (p.PublicPort, p.PrivatePort, p.Type));
 
     public bool IsRunning => State.Equals("running", StringComparison.OrdinalIgnoreCase);
     public bool IsExited => State.Equals("exited", StringComparison.OrdinalIgnoreCase);
@@ -70,6 +74,7 @@ public class ContainerViewModel
             ComposeService = labels.TryGetValue("com.docker.compose.service", out var svc) ? svc : null,
             Created = c.Created,
             Ports = c.Ports,
+            IsHostNetwork = c.NetworkSettings?.Networks?.ContainsKey("host") == true,
             HostId = hostId,
             HostName = hostName
         };

@@ -424,7 +424,14 @@
                                 <div class="k-ports-cell">
                                     @foreach (var p in c.PublicPorts)
                                     {
-                                        <a href="http://@(hostUrl):@p.PublicPort" target="_blank" class="k-port-link" title="Open in browser">@p.PublicPort:@p.PrivatePort/@p.Type</a>
+                                        @if (c.IsHostNetwork)
+                                        {
+                                            <a href="http://@(hostUrl):@p.PrivatePort" target="_blank" class="k-port-link" title="Host network">@p.PrivatePort/@p.Type</a>
+                                        }
+                                        else
+                                        {
+                                            <a href="http://@(hostUrl):@p.PublicPort" target="_blank" class="k-port-link" title="Open in browser">@p.PublicPort:@p.PrivatePort/@p.Type</a>
+                                        }
                                     }
                                 </div>
                             }
