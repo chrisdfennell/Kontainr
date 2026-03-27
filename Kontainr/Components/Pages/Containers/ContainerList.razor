@@ -181,6 +181,35 @@
                 }
             }
 
+            // For host-network containers, Docker's list API returns empty Ports.
+            // Inspect them to get exposed ports so we can display them.
+            var hostNetContainers = all.Where(c => c.IsHostNetwork && c.Ports.Count == 0).ToList();
+            if (hostNetContainers.Count > 0)
+            {
+                var inspectTasks = hostNetContainers.Select(async c =>
+                {
+                    try
+                    {
+                        var docker = DockerFactory.GetService(c.HostId);
+                        var inspect = await docker.InspectContainerAsync(c.Id);
+                        if (inspect.Config.ExposedPorts?.Count > 0)
+                        {
+                            c.Ports = inspect.Config.ExposedPorts.Keys
+                                .Select(k =>
+                                {
+                                    var parts = k.Split('/');
+                                    ushort.TryParse(parts[0], out var port);
+                                    return new Docker.DotNet.Models.Port { PrivatePort = port, Type = parts.Length > 1 ? parts[1] : "tcp" };
+                                })
+                                .Where(p => p.PrivatePort > 0)
+                                .ToList();
+                        }
+                    }
+                    catch { }
+                });
+                await Task.WhenAll(inspectTasks);
+            }
+
             allContainers = all.OrderBy(c => c.Name).ToList();
             RebuildGroups();
 
