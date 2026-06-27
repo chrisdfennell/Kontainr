@@ -24,7 +24,11 @@ Desktop.ini
 ## Docker
 docker-compose.override.yml
 
-## Kontainr data
+## Kontainr runtime data & secrets (never commit — DataProtection keys, DBs, settings)
 Kontainr/keys/
+Kontainr/data/keys/
+Kontainr/data/*.db
+Kontainr/data/*.db-shm
+Kontainr/data/*.db-wal
 Kontainr/kontainr-settings.json
 Kontainr/ssh-settings.json

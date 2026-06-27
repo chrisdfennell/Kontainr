@@ -96,36 +96,48 @@ public class LogAlertService : BackgroundService
                     return;
             }
 
-            var lines = logs.Split('\n');
-            foreach (var line in lines)
+            var matchedLine = FindMatchingLine(logs, rule.Pattern);
+            if (matchedLine is not null)
             {
-                bool matched;
-                try
+                lock (_lock)
                 {
-                    matched = Regex.IsMatch(line, rule.Pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                }
-                catch
-                {
-                    matched = line.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase);
+                    _alertCooldowns[cooldownKey] = DateTime.UtcNow;
                 }
 
-                if (matched)
-                {
-                    lock (_lock)
-                    {
-                        _alertCooldowns[cooldownKey] = DateTime.UtcNow;
-                    }
-
-                    var trimmedLine = line.Length > 200 ? line[..200] + "..." : line;
-                    await _webhook.SendAlertAsync(rule.ContainerName, "log-pattern",
-                        $"Pattern \"{rule.Pattern}\" matched: {trimmedLine}");
-                    break;
-                }
+                var trimmedLine = matchedLine.Length > 200 ? matchedLine[..200] + "..." : matchedLine;
+                await _webhook.SendAlertAsync(rule.ContainerName, "log-pattern",
+                    $"Pattern \"{rule.Pattern}\" matched: {trimmedLine}");
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to check logs for {Container} on {Host}", rule.ContainerName, hostId);
         }
+    }
+
+    /// <summary>
+    /// Returns the first log line matching the pattern (treated as a case-insensitive regex,
+    /// falling back to a substring match if the pattern is not valid regex), or null if none match.
+    /// </summary>
+    internal static string? FindMatchingLine(string logs, string pattern)
+    {
+        if (string.IsNullOrEmpty(logs) || string.IsNullOrEmpty(pattern)) return null;
+
+        foreach (var line in logs.Split('\n'))
+        {
+            bool matched;
+            try
+            {
+                matched = Regex.IsMatch(line, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            }
+            catch
+            {
+                matched = line.Contains(pattern, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (matched) return line;
+        }
+
+        return null;
     }
 }

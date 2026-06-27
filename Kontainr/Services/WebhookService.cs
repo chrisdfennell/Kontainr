@@ -3,6 +3,8 @@ using System.Text.Json;
 
 namespace Kontainr.Services;
 
+public enum WebhookProvider { Generic, Discord, Slack, Ntfy }
+
 public class WebhookService
 {
     private readonly SshSettingsService _settings;
@@ -28,31 +30,37 @@ public class WebhookService
         {
             var url = config.Url.Trim();
 
-            // Detect Discord webhook
-            if (url.Contains("discord.com/api/webhooks"))
+            switch (DetectProvider(url))
             {
-                await SendDiscordAsync(url, containerName, alertType, message);
-            }
-            // Detect Slack webhook
-            else if (url.Contains("hooks.slack.com"))
-            {
-                await SendSlackAsync(url, containerName, alertType, message);
-            }
-            // Detect Ntfy
-            else if (url.Contains("ntfy.sh/") || url.Contains("/ntfy/"))
-            {
-                await SendNtfyAsync(url, containerName, alertType, message);
-            }
-            // Generic JSON POST
-            else
-            {
-                await SendGenericAsync(url, containerName, alertType, message);
+                case WebhookProvider.Discord:
+                    await SendDiscordAsync(url, containerName, alertType, message);
+                    break;
+                case WebhookProvider.Slack:
+                    await SendSlackAsync(url, containerName, alertType, message);
+                    break;
+                case WebhookProvider.Ntfy:
+                    await SendNtfyAsync(url, containerName, alertType, message);
+                    break;
+                default:
+                    await SendGenericAsync(url, containerName, alertType, message);
+                    break;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send webhook for {Container}", containerName);
         }
+    }
+
+    /// <summary>Identifies the webhook destination from its URL so the right payload format is used.</summary>
+    internal static WebhookProvider DetectProvider(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return WebhookProvider.Generic;
+        url = url.Trim();
+        if (url.Contains("discord.com/api/webhooks")) return WebhookProvider.Discord;
+        if (url.Contains("hooks.slack.com")) return WebhookProvider.Slack;
+        if (url.Contains("ntfy.sh/") || url.Contains("/ntfy/")) return WebhookProvider.Ntfy;
+        return WebhookProvider.Generic;
     }
 
     private async Task SendDiscordAsync(string url, string container, string type, string message)

@@ -78,7 +78,7 @@ public class ScheduledRestartService : BackgroundService
         }
     }
 
-    private static bool ShouldRun(string expr, DateTime now)
+    internal static bool ShouldRun(string expr, DateTime now)
     {
         expr = expr.Trim();
 
@@ -94,7 +94,8 @@ public class ScheduledRestartService : BackgroundService
         string? dayPart = null;
 
         if (parts.Length == 2) { dayPart = parts[0]; timePart = parts[1]; }
-        else { timePart = parts[0]; }
+        else if (parts.Length == 1) { timePart = parts[0]; }
+        else { return false; }
 
         var timeParts = timePart.Split(':');
         if (timeParts.Length != 2) return false;

@@ -3,6 +3,9 @@ using Kontainr.Data;
 using Kontainr.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +22,10 @@ builder.Services.AddDataProtection()
 // SQLite metrics database
 builder.Services.AddDbContextFactory<MetricsDbContext>(options =>
     options.UseSqlite($"Data Source={Path.Combine(dataDir, "kontainr-metrics.db")}"));
+
+// Health checks (liveness + metrics DB readiness)
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<MetricsDbContext>("metrics-db");
 
 builder.Services.AddSingleton<SshSettingsService>();
 builder.Services.AddSingleton<ToastService>();
@@ -50,11 +57,26 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<MetricsCollectionS
 
 var app = builder.Build();
 
-// Ensure metrics database is created
+// Apply EF Core migrations to the metrics database.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MetricsDbContext>>().CreateDbContext();
-    db.Database.EnsureCreated();
+
+    // Transition support: databases created by earlier versions used EnsureCreated()
+    // and therefore have no __EFMigrationsHistory. Migrate() would then try to re-create
+    // existing tables and fail. If we find such a legacy database, baseline it by marking
+    // all current migrations as already applied (its schema already matches them).
+    var creator = db.Database.GetService<IRelationalDatabaseCreator>();
+    if (creator.Exists() && !db.Database.GetAppliedMigrations().Any())
+    {
+        var historyRepo = db.GetService<IHistoryRepository>();
+        var efVersion = typeof(DbContext).Assembly.GetName().Version?.ToString() ?? "10.0.0";
+        db.Database.ExecuteSqlRaw(historyRepo.GetCreateIfNotExistsScript());
+        foreach (var migrationId in db.Database.GetMigrations())
+            db.Database.ExecuteSqlRaw(historyRepo.GetInsertScript(new HistoryRow(migrationId, efVersion)));
+    }
+
+    db.Database.Migrate();
 }
 
 app.UseMiddleware<BasicAuthMiddleware>();
@@ -67,6 +89,7 @@ app.UseStatusCodePagesWithReExecute("/not-found");
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+app.MapHealthChecks("/health");
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
