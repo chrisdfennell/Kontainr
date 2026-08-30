@@ -15,7 +15,7 @@
   <a href="https://github.com/chrisdfennell/Kontainr"><img src="https://img.shields.io/github/stars/chrisdfennell/Kontainr?style=flat" alt="Stars"></a>
   <a href="https://github.com/chrisdfennell/Kontainr/issues"><img src="https://img.shields.io/github/issues/chrisdfennell/Kontainr" alt="Issues"></a>
   <a href="https://github.com/chrisdfennell/Kontainr/commits/main"><img src="https://img.shields.io/github/last-commit/chrisdfennell/Kontainr" alt="Last Commit"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/chrisdfennell/Kontainr" alt="License"></a>
+  <a href="https://github.com/chrisdfennell/Kontainr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/chrisdfennell/Kontainr" alt="License"></a>
 </p>
 
 ---
@@ -86,12 +86,16 @@
 - **Configurable Deploy** — change container name, ports, env vars, network, volumes, and restart policy before deploying
 
 ### Settings & Security
-- **Basic Auth** — optional password protection via environment variables
+- **Required Authentication** — Kontainr refuses to start without credentials; running open takes a deliberate opt-out
 - **SSH Connection Manager** — add, edit, test, delete connections with encrypted password storage
 - **Webhook Notifications** — Discord, Slack, ntfy, or generic HTTP alerts for container crashes and log pattern matches
 - **Configurable Host URL** — port links use your NAS hostname instead of localhost
 - **Time Zone Configuration** — configurable timezone for chart timestamps and all displayed times throughout the app
 - **Persistent Data** — settings and encryption keys survive container rebuilds via volume mount
+- **Encrypted Key Ring** — the Data Protection keys can themselves be encrypted at rest with a passphrase, so reading the data volume alone reveals nothing
+- **Mutual TLS to Remote Hosts** — remote Docker over TCP is verified against your own CA, and plaintext connections are refused unless explicitly allowed
+- **Security Headers** — CSP, frame-ancestors, nosniff, referrer and permissions policy on every response
+- **Non-Root Container** — the published image runs as UID 10001
 - **Backup & Restore** — export/import all settings as JSON
 - **Global Search** — search containers, images, volumes, and networks from any page
 - **Audit Log** — tracks all actions with timestamps
@@ -266,4 +270,4 @@ docker build -t kontainr -f Kontainr/Dockerfile Kontainr/
 
 ## License
 
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License — see [LICENSE](https://github.com/chrisdfennell/Kontainr/blob/main/LICENSE) for details.
