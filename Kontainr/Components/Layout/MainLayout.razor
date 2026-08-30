@@ -63,6 +63,10 @@
     [JSInvokable]
     public void OnThemeChanged(string newTheme)
     {
+        // Reachable from the browser, so treat the argument as untrusted input and
+        // ignore anything that is not a real theme rather than faulting the circuit.
+        if (newTheme is not ("dark" or "light")) return;
+
         Settings.SetTheme(newTheme);
     }
 

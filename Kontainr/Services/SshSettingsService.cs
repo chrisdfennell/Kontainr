@@ -40,11 +40,25 @@ public class SshSettingsService
 
     public string GetTheme()
     {
-        lock (_lock) { return Load().Theme; }
+        // Sanitised on read as well as write, so a settings file poisoned by an earlier
+        // build cannot inject into the inline theme script in MainLayout.
+        lock (_lock)
+        {
+            var theme = Load().Theme;
+            return theme is "dark" or "light" ? theme : "dark";
+        }
     }
 
+    /// <summary>
+    /// Stores the UI theme. The value is reached through a [JSInvokable] callback, so the
+    /// browser controls it, and MainLayout interpolates it into an inline script — anything
+    /// other than a known theme name is rejected rather than persisted.
+    /// </summary>
     public void SetTheme(string theme)
     {
+        if (theme is not ("dark" or "light"))
+            throw new ArgumentException($"Unknown theme '{theme}'.", nameof(theme));
+
         lock (_lock) { var s = Load(); s.Theme = theme; Save(s); }
     }
 
@@ -179,6 +193,50 @@ public class SshSettingsService
         catch { return ""; }
     }
 
+    /// <summary>
+    /// Decrypts a stored secret, returning null when the value cannot be decrypted rather
+    /// than silently degrading to an empty string. Callers that use the result to
+    /// authenticate should surface the failure instead of attempting a blank credential.
+    /// </summary>
+    public string? TryDecryptPassword(string? encrypted)
+    {
+        if (string.IsNullOrEmpty(encrypted)) return null;
+        try { return _protector.Unprotect(encrypted); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Re-encrypts any Docker host password that was persisted in plaintext by an earlier
+    /// build (which assigned the raw password straight to EncryptedSshPassword). Returns
+    /// the number of entries upgraded.
+    /// </summary>
+    public int UpgradePlaintextDockerHostPasswords()
+    {
+        lock (_lock)
+        {
+            var s = Load();
+            var upgraded = 0;
+
+            foreach (var host in s.DockerHosts)
+            {
+                if (string.IsNullOrEmpty(host.EncryptedSshPassword)) continue;
+
+                try { _protector.Unprotect(host.EncryptedSshPassword); }
+                catch
+                {
+                    // Not decryptable: either legacy plaintext or written under a key ring
+                    // we no longer have. Re-protecting is correct in the first case and
+                    // harmless in the second, where the value was already unusable.
+                    host.EncryptedSshPassword = _protector.Protect(host.EncryptedSshPassword);
+                    upgraded++;
+                }
+            }
+
+            if (upgraded > 0) Save(s);
+            return upgraded;
+        }
+    }
+
     // ── Git Stacks ──────────────────────────────────────────────
 
     public List<GitStackConfig> GetGitStacks()
@@ -270,12 +328,23 @@ public class SshSettingsService
         lock (_lock) { return Load().DockerHosts.ToList(); }
     }
 
-    public void SaveDockerHost(DockerHostConfig config)
+    /// <summary>
+    /// Persists a Docker host. When <paramref name="plainSshPassword"/> is supplied it is
+    /// encrypted here; when it is null the previously stored ciphertext is carried over so
+    /// an edit that leaves the password field blank does not wipe it.
+    /// </summary>
+    public void SaveDockerHost(DockerHostConfig config, string? plainSshPassword = null)
     {
         lock (_lock)
         {
             var s = Load();
             var existing = s.DockerHosts.FirstOrDefault(h => h.Id == config.Id);
+
+            if (plainSshPassword is not null)
+                config.EncryptedSshPassword = _protector.Protect(plainSshPassword);
+            else if (existing is not null)
+                config.EncryptedSshPassword = existing.EncryptedSshPassword;
+
             if (existing is not null) s.DockerHosts.Remove(existing);
             s.DockerHosts.Add(config);
             Save(s);

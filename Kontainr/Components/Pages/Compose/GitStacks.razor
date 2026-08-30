@@ -217,18 +217,20 @@
                 gitUrl = $"https://{Uri.EscapeDataString(stack.GitUsername)}:{Uri.EscapeDataString(password)}@{uri.Host}{uri.PathAndQuery}";
             }
 
-            var composeDirName = Path.GetDirectoryName(stack.ComposePath)?.Replace("\\", "/") ?? "";
+            var composeDirName = (Path.GetDirectoryName(stack.ComposePath)?.Replace("\\", "/") ?? "").Trim('/');
             var composeFileName = Path.GetFileName(stack.ComposePath);
-            var projectFlag = string.IsNullOrWhiteSpace(stack.ProjectName) ? "" : $"-p {stack.ProjectName}";
 
-            var envFlags = "";
-            foreach (var kv in stack.EnvVars)
-                envFlags += $" -e '{kv.Key}={kv.Value}'";
-
-            var cdPart = string.IsNullOrEmpty(composeDirName) ? "" : $" && cd {composeDirName}";
-
-            var script = $"""
-                rm -rf /workspace && git clone --depth 1 --branch {stack.Branch} '{gitUrl}' /workspace{cdPart} && cd /workspace{cdPart} && docker compose {projectFlag} -f {composeFileName} up -d
+            // The deploy container has the Docker socket bound and runs on the host network,
+            // so anything the shell parses here is a command run as root on the Docker host.
+            // Every configured value is passed in as an environment variable and referenced
+            // as "$VAR", which the shell never re-parses.
+            var script = """
+                set -e
+                rm -rf /workspace
+                git clone --depth 1 --branch "$KTR_BRANCH" "$KTR_GIT_URL" /workspace
+                cd "/workspace/$KTR_COMPOSE_DIR"
+                if [ -n "$KTR_PROJECT" ]; then set -- -p "$KTR_PROJECT"; fi
+                docker compose "$@" -f "$KTR_COMPOSE_FILE" up -d
                 """;
 
             // Determine the Docker socket path
@@ -258,10 +260,19 @@
                 }
             };
 
-            foreach (var kv in stack.EnvVars)
-                createParams.Env ??= [];
-            if (stack.EnvVars.Count > 0)
-                createParams.Env = stack.EnvVars.Select(kv => $"{kv.Key}={kv.Value}").ToList();
+            // Stack variables first, then Kontainr's own — a stack must not be able to
+            // redefine the values the script depends on.
+            createParams.Env =
+            [
+                .. stack.EnvVars
+                    .Where(kv => !kv.Key.StartsWith("KTR_", StringComparison.Ordinal))
+                    .Select(kv => $"{kv.Key}={kv.Value}"),
+                $"KTR_GIT_URL={gitUrl}",
+                $"KTR_BRANCH={stack.Branch}",
+                $"KTR_COMPOSE_DIR={composeDirName}",
+                $"KTR_COMPOSE_FILE={composeFileName}",
+                $"KTR_PROJECT={stack.ProjectName?.Trim() ?? ""}"
+            ];
 
             var container = await Docker.CreateContainerAsync(createParams);
             await Docker.StartContainerAsync(container.ID);
@@ -301,8 +312,10 @@
 
         try
         {
-            var projectFlag = string.IsNullOrWhiteSpace(stack.ProjectName) ? "" : $"-p {stack.ProjectName}";
-            var script = $"docker compose {projectFlag} down --remove-orphans";
+            var script = """
+                if [ -n "$KTR_PROJECT" ]; then set -- -p "$KTR_PROJECT"; fi
+                docker compose "$@" down --remove-orphans
+                """;
 
             var socketBind = OperatingSystem.IsWindows()
                 ? "//./pipe/docker_engine://./pipe/docker_engine"
@@ -315,6 +328,7 @@
                 Image = "docker:cli",
                 Name = $"kontainr-git-teardown-{DateTime.UtcNow:yyyyMMddHHmmss}",
                 Cmd = ["sh", "-c", script],
+                Env = [$"KTR_PROJECT={stack.ProjectName?.Trim() ?? ""}"],
                 HostConfig = new Docker.DotNet.Models.HostConfig
                 {
                     Binds = [socketBind],

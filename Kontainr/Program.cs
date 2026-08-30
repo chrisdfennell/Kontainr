@@ -2,6 +2,7 @@ using Kontainr.Components;
 using Kontainr.Data;
 using Kontainr.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -12,12 +13,40 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Resolve authentication before anything else so a misconfigured instance fails at
+// startup rather than coming up wide open. Kontainr drives the Docker socket, so an
+// unauthenticated instance is equivalent to remote root on this host.
+//
+// The EF Core tooling builds this same host to read the DbContext, and it has no reason
+// to carry credentials, so design-time invocations are exempt — they never serve traffic.
+var isEfDesignTime = AppDomain.CurrentDomain.FriendlyName == "ef";
+var authOptions = isEfDesignTime
+    ? AuthOptions.Disabled()
+    : AuthOptions.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(authOptions);
+
 var dataDir = builder.Configuration["KONTAINR_DATA"]
     ?? Path.Combine(builder.Environment.ContentRootPath, "data");
-Directory.CreateDirectory(dataDir);
+SecureDirectory.Create(dataDir);
+
+// The key ring can live on a separate volume from the data it protects, so that a
+// backup or a shared mount of the data directory does not also hand over the keys.
+var keysDir = builder.Configuration["KONTAINR_KEYS"] ?? Path.Combine(dataDir, "keys");
+SecureDirectory.Create(keysDir);
 
 builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")));
+    .PersistKeysToFileSystem(new DirectoryInfo(keysDir));
+
+// Encrypt the key ring itself when a passphrase is supplied. Without it the keys are
+// stored in the clear and are only as protected as the filesystem they sit on.
+var keyPassphrase = builder.Configuration["KONTAINR_KEY_PASSPHRASE"];
+if (!string.IsNullOrWhiteSpace(keyPassphrase))
+{
+    builder.Services.AddSingleton(new KeyPassphrase(keyPassphrase));
+    builder.Services.AddSingleton<PassphraseXmlEncryptor>();
+    builder.Services.AddOptions<KeyManagementOptions>()
+        .Configure<PassphraseXmlEncryptor>((options, encryptor) => options.XmlEncryptor = encryptor);
+}
 
 // SQLite metrics database
 builder.Services.AddDbContextFactory<MetricsDbContext>(options =>
@@ -57,6 +86,28 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<MetricsCollectionS
 
 var app = builder.Build();
 
+var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Kontainr.Startup");
+
+if (!authOptions.Enabled && !isEfDesignTime)
+{
+    startupLogger.LogWarning(
+        "Authentication is DISABLED (Auth__Disabled=true). Anyone who can reach this instance has full " +
+        "control of the Docker host, including a shell inside any container. Only run this way behind " +
+        "something that is already authenticating requests.");
+}
+else if (authOptions.GetWeaknessWarning() is { } weakness)
+{
+    startupLogger.LogWarning("{Warning}", weakness);
+}
+
+if (string.IsNullOrWhiteSpace(keyPassphrase))
+{
+    startupLogger.LogWarning(
+        "KONTAINR_KEY_PASSPHRASE is not set, so the Data Protection key ring in {KeysDir} is stored " +
+        "unencrypted. Anyone who can read that directory can decrypt every stored SSH, registry and git " +
+        "credential. Set KONTAINR_KEY_PASSPHRASE to encrypt the key ring at rest.", keysDir);
+}
+
 // Apply EF Core migrations to the metrics database.
 using (var scope = app.Services.CreateScope())
 {
@@ -79,6 +130,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<BasicAuthMiddleware>();
 
 if (!app.Environment.IsDevelopment())

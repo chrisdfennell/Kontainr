@@ -335,11 +335,14 @@ public class DockerService : IDisposable
             throw;
         }
 
-        // 3. Build the docker create command from the inspected config
+        // 3. Build the docker create command from the inspected config.
+        // This becomes an "sh -c" script in a container with the Docker socket bound, so
+        // every value taken from the inspected config is shell-quoted before it goes in —
+        // container names, binds, labels and env values are all attacker-influenceable.
         var args = new List<string>();
 
         // Name
-        args.Add($"--name {name}");
+        args.Add($"--name {Sh.Quote(name)}");
 
         // Restart policy
         var restartKind = inspect.HostConfig.RestartPolicy?.Name;
@@ -361,7 +364,7 @@ public class DockerService : IDisposable
         if (inspect.Config.Env is not null)
         {
             foreach (var env in inspect.Config.Env)
-                args.Add($"-e '{env}'");
+                args.Add($"-e {Sh.Quote(env)}");
         }
 
         // Port bindings
@@ -373,7 +376,7 @@ public class DockerService : IDisposable
                 foreach (var b in bindings)
                 {
                     var hostPart = string.IsNullOrEmpty(b.HostIP) ? "" : $"{b.HostIP}:";
-                    args.Add($"-p {hostPart}{b.HostPort}:{containerPort}");
+                    args.Add($"-p {Sh.Quote($"{hostPart}{b.HostPort}:{containerPort}")}");
                 }
             }
         }
@@ -382,18 +385,18 @@ public class DockerService : IDisposable
         if (inspect.HostConfig.Binds is not null)
         {
             foreach (var bind in inspect.HostConfig.Binds)
-                args.Add($"-v '{bind}'");
+                args.Add($"-v {Sh.Quote(bind)}");
         }
 
         // Network mode
         if (!string.IsNullOrEmpty(inspect.HostConfig.NetworkMode) && inspect.HostConfig.NetworkMode != "default")
-            args.Add($"--network {inspect.HostConfig.NetworkMode}");
+            args.Add($"--network {Sh.Quote(inspect.HostConfig.NetworkMode)}");
 
         // Labels
         if (inspect.Config.Labels is not null)
         {
             foreach (var (key, value) in inspect.Config.Labels)
-                args.Add($"--label '{key}={value}'");
+                args.Add($"--label {Sh.Quote($"{key}={value}")}");
         }
 
         // Resource limits
@@ -408,14 +411,14 @@ public class DockerService : IDisposable
         var script = $"""
             echo 'Waiting for Kontainr to send response...'
             sleep 5
-            echo 'Stopping {name}...'
-            docker stop {selfId} -t 10
-            echo 'Removing {name}...'
-            docker rm {selfId}
-            echo 'Creating new {name}...'
-            docker create {dockerArgs} {image}
-            echo 'Starting {name}...'
-            docker start {name}
+            echo "Stopping $KTR_NAME..."
+            docker stop {Sh.Quote(selfId)} -t 10
+            echo "Removing $KTR_NAME..."
+            docker rm {Sh.Quote(selfId)}
+            echo "Creating new $KTR_NAME..."
+            docker create {dockerArgs} {Sh.Quote(image)}
+            echo "Starting $KTR_NAME..."
+            docker start {Sh.Quote(name)}
             echo 'Self-update complete!'
             """;
 
@@ -431,6 +434,7 @@ public class DockerService : IDisposable
             Image = "docker:cli",
             Name = $"kontainr-updater-{DateTime.UtcNow:yyyyMMddHHmmss}",
             Cmd = ["sh", "-c", script],
+            Env = [$"KTR_NAME={name}"],
             Labels = new Dictionary<string, string> { ["kontainr.updater"] = "true" },
             HostConfig = new HostConfig
             {

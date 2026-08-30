@@ -71,9 +71,33 @@
                     {
                         <div style="grid-column: span 2;">
                             <label class="k-form-label">TCP Endpoint</label>
-                            <input class="k-form-input" type="text" placeholder="tcp://192.168.1.100:2375" @bind="hostEditTcpEndpoint" />
-                            <span style="font-size: 0.7rem; color: var(--k-text-muted);">Ensure Docker daemon has TCP enabled: dockerd -H tcp://0.0.0.0:2375</span>
+                            <input class="k-form-input" type="text" placeholder="tcp://192.168.1.100:2376" @bind="hostEditTcpEndpoint" />
+                            <span style="font-size: 0.7rem; color: var(--k-text-muted);">Docker's TCP socket has no authentication of its own. Serve it over TLS (dockerd --tlsverify -H tcp://0.0.0.0:2376) and connect with the certificates below.</span>
                         </div>
+                        <div style="grid-column: span 2;">
+                            <label class="k-form-label" style="display: flex; align-items: center; gap: 0.4rem;">
+                                <input type="checkbox" @bind="hostEditTcpUseTls" />
+                                Verify with TLS (recommended)
+                            </label>
+                        </div>
+                        @if (hostEditTcpUseTls)
+                        {
+                            <div style="grid-column: span 2;">
+                                <label class="k-form-label">Certificate Directory</label>
+                                <input class="k-form-input" type="text" placeholder="/certs/production" @bind="hostEditTcpCertDir" />
+                                <span style="font-size: 0.7rem; color: var(--k-text-muted);">Must contain ca.pem, cert.pem and key.pem — the same layout as DOCKER_CERT_PATH. Mount this directory into the Kontainr container.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="grid-column: span 2;">
+                                <label class="k-form-label" style="display: flex; align-items: center; gap: 0.4rem;">
+                                    <input type="checkbox" @bind="hostEditTcpAllowPlaintext" />
+                                    Allow an unencrypted connection to a remote host
+                                </label>
+                                <span style="font-size: 0.7rem; color: var(--k-red);">Without TLS, anyone who can reach or intercept this endpoint has full control of that Docker host. Only tick this if the link is already protected — a VPN, or a tunnel you set up yourself.</span>
+                            </div>
+                        }
                     }
                     else
                     {
@@ -455,6 +479,8 @@
     private string? hostEditId;
     private string hostEditName = "", hostEditType = "Tcp";
     private string hostEditTcpEndpoint = "", hostEditSshHost = "", hostEditSshUsername = "", hostEditSshPassword = "", hostEditHostUrl = "";
+    private string hostEditTcpCertDir = "";
+    private bool hostEditTcpUseTls = true, hostEditTcpAllowPlaintext;
     private int hostEditSshPort = 22;
     private string hostTestResult = "";
     private bool hostTestSuccess, hostTesting;
@@ -704,6 +730,7 @@
         hostEditId = null; hostEditName = ""; hostEditType = "Tcp";
         hostEditTcpEndpoint = ""; hostEditSshHost = ""; hostEditSshPort = 22;
         hostEditSshUsername = ""; hostEditSshPassword = ""; hostEditHostUrl = "";
+        hostEditTcpUseTls = true; hostEditTcpCertDir = ""; hostEditTcpAllowPlaintext = false;
         hostTestResult = ""; showHostForm = true;
     }
 
@@ -711,25 +738,15 @@
     {
         if (string.IsNullOrWhiteSpace(hostEditName)) return;
 
-        var config = new DockerHostConfig
-        {
-            Id = hostEditId ?? Guid.NewGuid().ToString("N")[..8],
-            Name = hostEditName.Trim(),
-            Type = Enum.Parse<DockerHostType>(hostEditType),
-            TcpEndpoint = hostEditTcpEndpoint.Trim(),
-            SshHost = hostEditSshHost.Trim(),
-            SshPort = hostEditSshPort,
-            SshUsername = hostEditSshUsername.Trim(),
-            HostUrl = string.IsNullOrWhiteSpace(hostEditHostUrl) ? null : hostEditHostUrl.Trim()
-        };
+        var config = BuildHostConfig(hostEditId ?? Guid.NewGuid().ToString("N")[..8]);
 
-        // Encrypt password if provided
-        if (!string.IsNullOrEmpty(hostEditSshPassword))
-            config.EncryptedSshPassword = hostEditSshPassword; // DockerHostManager will handle encryption via settings
+        // The password is passed alongside the config, never on it — SshSettingsService
+        // encrypts it before it reaches disk. Null means "keep whatever is already stored".
+        var plainPassword = string.IsNullOrEmpty(hostEditSshPassword) ? null : hostEditSshPassword;
 
         try
         {
-            await HostManager.AddHostAsync(config);
+            await HostManager.AddHostAsync(config, plainPassword);
             Toast.Success("Docker host added");
             showHostForm = false;
             dockerHosts = SshSettings.GetDockerHosts();
@@ -745,22 +762,30 @@
         hostTesting = true; hostTestResult = "Testing..."; hostTestSuccess = false;
         StateHasChanged();
 
-        var config = new DockerHostConfig
-        {
-            Name = hostEditName.Trim(),
-            Type = Enum.Parse<DockerHostType>(hostEditType),
-            TcpEndpoint = hostEditTcpEndpoint.Trim(),
-            SshHost = hostEditSshHost.Trim(),
-            SshPort = hostEditSshPort,
-            SshUsername = hostEditSshUsername.Trim(),
-            EncryptedSshPassword = hostEditSshPassword // plain text for testing
-        };
+        var config = BuildHostConfig(hostEditId ?? "unsaved");
 
-        var (success, message) = await HostManager.TestConnectionAsync(config);
+        var (success, message) = await HostManager.TestConnectionAsync(
+            config, string.IsNullOrEmpty(hostEditSshPassword) ? null : hostEditSshPassword);
+
         hostTestResult = message;
         hostTestSuccess = success;
         hostTesting = false;
     }
+
+    private DockerHostConfig BuildHostConfig(string id) => new()
+    {
+        Id = id,
+        Name = hostEditName.Trim(),
+        Type = Enum.Parse<DockerHostType>(hostEditType),
+        TcpEndpoint = hostEditTcpEndpoint.Trim(),
+        TcpUseTls = hostEditTcpUseTls,
+        TcpCertDirectory = string.IsNullOrWhiteSpace(hostEditTcpCertDir) ? null : hostEditTcpCertDir.Trim(),
+        TcpAllowPlaintext = hostEditTcpAllowPlaintext,
+        SshHost = hostEditSshHost.Trim(),
+        SshPort = hostEditSshPort,
+        SshUsername = hostEditSshUsername.Trim(),
+        HostUrl = string.IsNullOrWhiteSpace(hostEditHostUrl) ? null : hostEditHostUrl.Trim()
+    };
 
     private void RequestDeleteHost(DockerHostConfig h) =>
         ShowConfirm("Remove Docker Host", $"Remove Docker host \"{h.Name}\"? You can re-add it later.", "Remove", () =>

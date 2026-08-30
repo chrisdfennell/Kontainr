@@ -100,18 +100,9 @@
 
 ## Quick Start
 
-```bash
-docker run -d \
-  --name kontainr \
-  -p 8080:8080 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v kontainr-data:/app/data \
-  fennch/kontainr:latest
-```
-
-Then open `http://localhost:8080`.
-
-### With Authentication
+> **Kontainr controls the Docker socket.** Anyone who can reach it can start privileged
+> containers and open a shell inside any container — access to Kontainr is access to the
+> host. It will not start without credentials.
 
 ```bash
 docker run -d \
@@ -120,9 +111,29 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v kontainr-data:/app/data \
   -e Auth__Username=admin \
-  -e Auth__Password=changeme \
+  -e Auth__Password="$(openssl rand -base64 24)" \
+  -e KONTAINR_KEY_PASSPHRASE="$(openssl rand -base64 32)" \
+  --group-add "$(getent group docker | cut -d: -f3)" \
   fennch/kontainr:latest
 ```
+
+Then open `http://localhost:8080`. Keep a copy of `KONTAINR_KEY_PASSPHRASE` somewhere other
+than the data volume — it encrypts the stored SSH, registry and git credentials, and losing
+it makes them unrecoverable.
+
+The image runs as UID 10001, so `--group-add` is what lets it read the Docker socket. If your
+host has no `docker` group, drop that flag and add `--user root` instead.
+
+### Without Authentication
+
+Only appropriate when something in front of Kontainr already authenticates requests — an
+authenticating reverse proxy, or an interface nothing untrusted can reach. Add:
+
+```bash
+  -e Auth__Disabled=true
+```
+
+Kontainr logs a warning on every start while this is set.
 
 ### Docker Compose
 
@@ -137,7 +148,11 @@ services:
       - kontainr-data:/app/data
     environment:
       - Auth__Username=admin
-      - Auth__Password=changeme
+      - Auth__Password=change-this-to-something-long
+      - KONTAINR_KEY_PASSPHRASE=generate-a-long-random-value
+    # Replace 999 with: getent group docker | cut -d: -f3
+    group_add:
+      - "999"
     restart: unless-stopped
 
 volumes:
@@ -150,9 +165,13 @@ volumes:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `Auth__Username` | Login username (optional) | *(none — no auth)* |
-| `Auth__Password` | Login password (optional) | *(none — no auth)* |
-| `KONTAINR_DATA` | Data directory for settings & keys | `/app/data` |
+| `Auth__Username` | Login username. Required unless `Auth__Disabled` is set | *(none — startup fails)* |
+| `Auth__Password` | Login password. Required unless `Auth__Disabled` is set | *(none — startup fails)* |
+| `Auth__Disabled` | Run with no authentication at all. Logs a warning on every start | `false` |
+| `KONTAINR_KEY_PASSPHRASE` | Encrypts the Data Protection key ring at rest, so reading the data volume alone does not reveal stored credentials | *(none — key ring stored unencrypted)* |
+| `KONTAINR_DATA` | Data directory for settings & metrics | `/app/data` |
+| `KONTAINR_KEYS` | Key ring directory. Point this at a separate volume to keep keys away from the data they protect | `$KONTAINR_DATA/keys` |
+| `Security__ContentSecurityPolicy` | Override the default Content-Security-Policy header | *(built-in policy)* |
 
 ### Persistent Data
 
@@ -164,6 +183,28 @@ Mount a volume to `/app/data` to persist:
 - Historical metrics database (SQLite)
 - Host URL, theme, timezone, favorites, and app settings
 - Encryption keys
+
+### Remote Docker Hosts
+
+Docker's TCP socket has no authentication of its own, so Kontainr refuses to connect to a
+remote TCP endpoint in the clear. Serve the daemon over TLS:
+
+```bash
+dockerd --tlsverify \
+  --tlscacert=/etc/docker/certs/ca.pem \
+  --tlscert=/etc/docker/certs/server-cert.pem \
+  --tlskey=/etc/docker/certs/server-key.pem \
+  -H tcp://0.0.0.0:2376
+```
+
+Then in **Settings** > **Docker Hosts**, add a TCP host pointing at `tcp://your-host:2376`,
+leave **Verify with TLS** ticked, and give it a certificate directory containing `ca.pem`,
+`cert.pem` and `key.pem` — the same layout `DOCKER_CERT_PATH` uses. Mount that directory into
+the Kontainr container. Server certificates are checked against your `ca.pem` rather than the
+machine trust store.
+
+If the link is already protected some other way, tick **allow an unencrypted connection**
+instead — but an open Docker TCP port is full control of that host, so be sure.
 
 ### SSH Connections
 

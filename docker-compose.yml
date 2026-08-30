@@ -10,10 +10,20 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - kontainr-data:/app/data
     environment:
-      # Uncomment to enable login:
-      # - Auth__Username=admin
-      # - Auth__Password=changeme
+      # Kontainr controls the Docker socket, so an unauthenticated instance is
+      # equivalent to remote root on this host. It will not start without either
+      # credentials or an explicit Auth__Disabled=true.
+      - Auth__Username=admin
+      - Auth__Password=change-this-to-something-long
+      # Encrypts the Data Protection key ring so that read access to the data volume
+      # alone does not reveal stored SSH, registry and git credentials. Keep a copy:
+      # losing it makes those credentials unrecoverable.
+      # - KONTAINR_KEY_PASSPHRASE=generate-a-long-random-value
       - KONTAINR_DATA=/app/data
+    # The image runs as UID 10001. Grant it the host's docker group so it can reach
+    # the socket — replace 999 with `getent group docker | cut -d: -f3` on your host.
+    # group_add:
+    #   - "999"
     restart: unless-stopped
 
 volumes:

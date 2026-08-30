@@ -135,10 +135,30 @@
 
             var composeBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(composeContent));
 
+            // The deploy container has the Docker socket bound, so anything the shell parses
+            // here runs as root on the Docker host. The working directory, project name and
+            // compose file are passed in as environment variables and referenced as "$VAR"
+            // rather than interpolated into the script.
+            var script = """
+                set -e
+                mkdir -p "$KTR_DIR"
+                printf '%s' "$KTR_COMPOSE_B64" | base64 -d > "$KTR_DIR/docker-compose.yml"
+                cd "$KTR_DIR"
+                set +e
+                docker compose -p "$KTR_PROJECT" up -d 2>&1
+                echo '--- DONE ---'
+                """;
+
             var createParams = new global::Docker.DotNet.Models.CreateContainerParameters
             {
                 Image = "docker/compose:latest",
-                Cmd = ["sh", "-c", $"mkdir -p {dir} && echo '{composeBase64}' | base64 -d > {dir}/docker-compose.yml && cd {dir} && docker compose -p {proj} up -d 2>&1; echo '--- DONE ---'"],
+                Cmd = ["sh", "-c", script],
+                Env =
+                [
+                    $"KTR_DIR={dir}",
+                    $"KTR_PROJECT={proj}",
+                    $"KTR_COMPOSE_B64={composeBase64}"
+                ],
                 HostConfig = new global::Docker.DotNet.Models.HostConfig
                 {
                     Binds = ["/var/run/docker.sock:/var/run/docker.sock"],
@@ -219,10 +239,21 @@
         {
             var dir = string.IsNullOrWhiteSpace(workDir) ? "/tmp/kontainr-compose" : workDir.Trim();
 
+            var script = """
+                cd "$KTR_DIR"
+                docker compose -p "$KTR_PROJECT" down 2>&1
+                echo '--- DONE ---'
+                """;
+
             var createParams = new global::Docker.DotNet.Models.CreateContainerParameters
             {
                 Image = "docker:cli",
-                Cmd = ["sh", "-c", $"cd {dir} && docker compose -p {projectName.Trim()} down 2>&1; echo '--- DONE ---'"],
+                Cmd = ["sh", "-c", script],
+                Env =
+                [
+                    $"KTR_DIR={dir}",
+                    $"KTR_PROJECT={projectName.Trim()}"
+                ],
                 HostConfig = new global::Docker.DotNet.Models.HostConfig
                 {
                     Binds = ["/var/run/docker.sock:/var/run/docker.sock"],
